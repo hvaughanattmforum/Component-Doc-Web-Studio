@@ -1549,10 +1549,37 @@ function commitAndPush(req, { message }) {
   const remoteUrl = runGit(root, ['remote', 'get-url', 'origin']);
   const identity = repoOwnerAndName(remoteUrl);
   if (!identity) throw new Error(`Could not parse a GitHub owner/repo from remote URL: ${remoteUrl}`);
-  const pushUrl = remoteUrl.replace('https://', `https://x-access-token:${user.accessToken}@`);
-  execFileSync('git', ['push', pushUrl, `HEAD:${branch}`], { cwd: root, encoding: 'utf8' });
+  // The token is passed via an environment variable, read by a throwaway
+  // credential-helper shell snippet - never embedded in a URL or any other
+  // argv value. This matters because execFileSync includes the full command
+  // line (every arg, but NOT the env option) in its thrown Error on a failed
+  // command - an argv-embedded token (e.g. https://x-access-token:TOKEN@...)
+  // would otherwise leak into any error surfaced to the client, as happened
+  // here during testing. `-c credential.helper=` first clears any
+  // pre-configured helper (e.g. Windows Credential Manager) so only ours runs.
+  try {
+    execFileSync(
+      'git',
+      [
+        '-c', 'credential.helper=',
+        '-c', 'credential.helper=!f() { echo username=x-access-token; echo "password=$ODA_STUDIO_PUSH_TOKEN"; }; f',
+        'push', 'origin', `HEAD:${branch}`,
+      ],
+      { cwd: root, encoding: 'utf8', env: { ...process.env, ODA_STUDIO_PUSH_TOKEN: user.accessToken } },
+    );
+  } catch (err) {
+    // Defense in depth: the token should never appear in argv/output given
+    // the credential-helper approach above, but strip it anyway in case it
+    // ends up in an error some other way (e.g. a future code path).
+    throw new Error(redactToken(err.message, user.accessToken));
+  }
 
   return { committed: true, branch, identity };
+}
+
+function redactToken(text, token) {
+  if (!text) return text;
+  return token ? text.split(token).join('[REDACTED]') : text;
 }
 
 // Layers PR creation on top of commitAndPush - this is what turns "push" into
