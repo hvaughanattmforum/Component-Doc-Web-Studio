@@ -34,6 +34,14 @@ export const api = {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path }),
   }).then((res) => res.json().then((body) => ({ status: res.status, ...body }))),
+  pushToOrigin: () => fetch(`${BASE}/git/push`, { method: 'POST' })
+    .then((res) => res.json().then((body) => ({ status: res.status, ...body }))),
+  branchName: () => fetch(`${BASE}/git/branch-name`).then(json),
+  setBranchName: (branch) => fetch(`${BASE}/git/branch-name`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ branch }),
+  }).then((res) => res.json().then((body) => ({ status: res.status, ...body }))),
   getConfig: () => fetch(`${BASE}/config`).then(json),
   // partial: { repoRoot? , frameworksDir? } - either or both may be set independently.
   setConfig: (partial) => fetch(`${BASE}/config`, {

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import yaml from 'js-yaml';
 import { api } from '../api.js';
 import { buildComponent, fileNamesFor } from '../buildComponent.js';
@@ -6,7 +6,31 @@ import { buildComponent, fileNamesFor } from '../buildComponent.js';
 export default function ReviewStep({ state, original, originalLocation, mode }) {
   const [validation, setValidation] = useState(null);
   const [saveResult, setSaveResult] = useState(null);
+  const [pushResult, setPushResult] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [pushing, setPushing] = useState(false);
+  const [branchName, setBranchName] = useState('');
+  const [savedBranchName, setSavedBranchName] = useState(''); // last name confirmed with the server
+  const [renaming, setRenaming] = useState(false);
+  const [renameError, setRenameError] = useState(null);
+
+  useEffect(() => {
+    api.branchName().then((r) => { setBranchName(r.branch); setSavedBranchName(r.branch); }).catch(() => {});
+  }, []);
+
+  const renameBranch = async () => {
+    setRenaming(true);
+    setRenameError(null);
+    try {
+      const result = await api.setBranchName(branchName.trim());
+      if (result.ok) { setBranchName(result.branch); setSavedBranchName(result.branch); }
+      else setRenameError(result.error);
+    } catch (err) {
+      setRenameError(err.message);
+    } finally {
+      setRenaming(false);
+    }
+  };
 
   const component = buildComponent(state, original);
   const yamlText = yaml.dump(component, { sortKeys: false, lineWidth: -1, noArrayIndent: true });
@@ -35,6 +59,23 @@ export default function ReviewStep({ state, original, originalLocation, mode }) 
       setSaveResult({ ok: false, error: err.message });
     } finally {
       setBusy(false);
+    }
+  };
+
+  // Separate from Save above: Save only ever writes locally (to the active
+  // worktree/workspace); this is the explicit, deliberate action that
+  // actually commits and pushes those local changes to a feature branch on
+  // the real repo - no PR is opened here.
+  const runPush = async () => {
+    setPushing(true);
+    setPushResult(null);
+    try {
+      const result = await api.pushToOrigin();
+      setPushResult(result);
+    } catch (err) {
+      setPushResult({ ok: false, error: err.message });
+    } finally {
+      setPushing(false);
     }
   };
 
@@ -84,9 +125,37 @@ export default function ReviewStep({ state, original, originalLocation, mode }) 
         </div>
       )}
 
+      {pushResult && pushResult.ok && pushResult.committed && (
+        <div className="status-banner ok">Pushed to <code>{pushResult.branch}</code> on origin.</div>
+      )}
+      {pushResult && pushResult.ok && !pushResult.committed && (
+        <div className="status-banner ok">Nothing to push - no changes since the last push.</div>
+      )}
+      {pushResult && !pushResult.ok && (
+        <div className="status-banner error">{pushResult.error}</div>
+      )}
+
+      <div className="field">
+        <label>Branch name (used by "Push to origin Repo")</label>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input
+            type="text"
+            value={branchName}
+            onChange={(e) => setBranchName(e.target.value)}
+            style={{ flex: 1 }}
+            disabled={renaming}
+          />
+          <button type="button" onClick={renameBranch} disabled={renaming || !branchName.trim() || branchName.trim() === savedBranchName}>
+            {renaming ? 'Renaming…' : 'Rename'}
+          </button>
+        </div>
+        {renameError && <div className="hint" style={{ color: 'var(--danger)', marginTop: 4 }}>{renameError}</div>}
+      </div>
+
       <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
         <button onClick={runValidate} disabled={busy}>Validate</button>
-        <button className="save" onClick={() => runSave(false)} disabled={busy}>{mode === 'edit' ? 'Save changes' : 'Save component'}</button>
+        <button className="save" onClick={() => runSave(false)} disabled={busy}>Save to Worktree</button>
+        <button className="primary" onClick={runPush} disabled={pushing}>{pushing ? 'Pushing…' : 'Push to origin Repo'}</button>
       </div>
 
       <pre className="yaml-preview">{yamlText}</pre>
