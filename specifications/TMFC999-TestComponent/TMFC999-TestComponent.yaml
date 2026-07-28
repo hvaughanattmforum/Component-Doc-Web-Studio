@@ -1,0 +1,7 @@
+spec:
+  componentMetadata:
+    id: TMFC999
+    name: TestComponent
+    version: 1.0.0
+    status: roadmap
+    functionalBlock: Test
