@@ -66,6 +66,7 @@ export default function App() {
   const [apiCatalog, setApiCatalog] = useState([]);
   const [apiCatalogError, setApiCatalogError] = useState(null);
   const [repoInfo, setRepoInfo] = useState(null);
+  const [authUser, setAuthUser] = useState(undefined); // undefined = loading, null = signed out
 
   const refreshRepoInfo = () => api.health().then(setRepoInfo).catch(() => setRepoInfo({ ok: false }));
 
@@ -76,11 +77,21 @@ export default function App() {
       .catch((err) => setApiCatalogError(err.message || 'Failed to load the API catalog.'));
   };
 
+  // /api/health and /api/me are the only endpoints a signed-out client may
+  // call, so the repo-connection banner can show before sign-in but every
+  // other data load below waits until authUser is known to be signed in.
   useEffect(() => {
     refreshRepoInfo();
+    api.me().then((r) => setAuthUser(r.user)).catch(() => setAuthUser(null));
+  }, []);
+
+  useEffect(() => {
+    if (!authUser) return;
     api.functionalBlocks().then((r) => setFunctionalBlocks(r.functionalBlocks)).catch(() => {});
     refreshApiCatalog();
-  }, []);
+  }, [authUser]);
+
+  const signOut = () => api.logout().then(() => setAuthUser(null)).catch(() => {});
 
   const startCreate = () => {
     setOriginal(null);
@@ -108,7 +119,18 @@ export default function App() {
     <div className="app">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
         <h1>ODA Component Doc Specification Studio</h1>
-        <HelpButton />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {authUser && (
+            <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem' }}>
+              {authUser.avatarUrl && (
+                <img src={authUser.avatarUrl} alt="" width={24} height={24} style={{ borderRadius: '50%' }} />
+              )}
+              {authUser.name || authUser.login}
+              <button onClick={signOut}>Sign out</button>
+            </span>
+          )}
+          <HelpButton />
+        </div>
       </div>
       {repoInfo?.git && (repoInfo.git.remote || repoInfo.git.branch) && (
         <p className="repo-connection">
@@ -128,6 +150,17 @@ export default function App() {
         )}
       </p>
 
+      {authUser === undefined && <p>Loading…</p>}
+
+      {authUser === null && (
+        <div className="status-banner" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <span>Sign in with GitHub to create or edit component specifications.</span>
+          <button className="primary" onClick={() => { window.location.href = '/auth/github'; }}>Sign in with GitHub</button>
+        </div>
+      )}
+
+      {authUser && (
+      <>
       <div className="steps">
         <button className={`step-pill ${view === 'wizard' ? 'active' : ''}`} onClick={() => setView('wizard')}>Studio</button>
         <button className={`step-pill ${view === 'setup' ? 'active' : ''}`} onClick={() => setView('setup')}>Setup instructions</button>
@@ -243,6 +276,8 @@ export default function App() {
             <button onClick={() => setStep((s) => Math.min(STEPS.length - 1, s + 1))} disabled={step === STEPS.length - 1}>Next</button>
           </div>
         </>
+      )}
+      </>
       )}
     </div>
   );

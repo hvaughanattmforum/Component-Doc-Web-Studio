@@ -10,6 +10,8 @@ async function json(res) {
 
 export const api = {
   health: () => fetch(`${BASE}/health`).then(json),
+  me: () => fetch(`${BASE}/me`).then(json),
+  logout: () => fetch('/auth/logout', { method: 'POST' }).then(json),
   getConfig: () => fetch(`${BASE}/config`).then(json),
   // partial: { repoRoot? , frameworksDir? } - either or both may be set independently.
   setConfig: (partial) => fetch(`${BASE}/config`, {
