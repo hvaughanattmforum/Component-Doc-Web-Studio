@@ -5,11 +5,10 @@ function StatusDot({ ok }) {
   return <span style={{ color: ok ? 'var(--ok)' : 'var(--danger)' }}>{ok ? '✓' : '✗'}</span>;
 }
 
-// Generic "configure one absolute path independently" card, used for both
-// repoRoot and frameworksDir - they're unrelated settings (no shared-parent
-// requirement between them), each with its own env var, saved-config key,
-// and precedence, so they're rendered as two independent instances of this
-// component rather than one combined form.
+// Configures frameworksDir (the only remaining settable path here - see the
+// read-only "Repo root" summary below instead for REPO_ROOT, which stopped
+// being settable this way once per-branch worktrees replaced a single
+// user-editable repo location).
 function PathConfig({ label, fieldName, envVarName, placeholder, config, onSaved }) {
   const [value, setValue] = useState(config?.[fieldName] || '');
   const [saving, setSaving] = useState(false);
@@ -19,9 +18,8 @@ function PathConfig({ label, fieldName, envVarName, placeholder, config, onSaved
     setValue(config?.[fieldName] || '');
   }, [config?.[fieldName]]);
 
-  const sourceKey = fieldName === 'repoRoot' ? 'source' : 'frameworksDirSource';
-  const envOverrideKey = fieldName === 'repoRoot' ? 'envOverrideActive' : 'frameworksDirEnvOverrideActive';
-  const source = config?.[sourceKey];
+  const source = config?.frameworksDirSource;
+  const envOverrideKey = 'frameworksDirEnvOverrideActive';
 
   const save = async () => {
     setSaving(true);
@@ -123,6 +121,60 @@ function FrameworksRegenerate({ onRegenerated }) {
   );
 }
 
+// Every branch currently checked out as its own independent working folder
+// (see BranchSwitcher.jsx) - the main checkout can't be removed here since
+// it isn't a disposable branch worktree the way the others are.
+function WorktreesList() {
+  const [data, setData] = useState(null); // { worktrees, active, main }
+  const [error, setError] = useState(null);
+  const [busyPath, setBusyPath] = useState(null);
+
+  const refresh = () => {
+    setError(null);
+    return api.gitWorktrees().then(setData).catch((err) => setError(err.message));
+  };
+
+  useEffect(() => { refresh(); }, []);
+
+  const remove = (worktreePath) => {
+    setBusyPath(worktreePath);
+    api.removeWorktree(worktreePath)
+      .then((r) => (r.ok ? refresh() : setError(r.error)))
+      .catch((err) => setError(err.message))
+      .finally(() => setBusyPath(null));
+  };
+
+  return (
+    <div className="field">
+      <label>Worktrees (branches checked out side-by-side)</label>
+      {!data && !error && <div className="hint">Loading...</div>}
+      {error && <div className="hint" style={{ color: 'var(--danger)' }}>{error}</div>}
+      {data && (
+        <table className="history-table">
+          <thead>
+            <tr><th>Branch</th><th>Path</th><th></th></tr>
+          </thead>
+          <tbody>
+            {data.worktrees.map((w) => (
+              <tr key={w.path}>
+                <td>{w.branch || '(detached)'}{w.path === data.active ? ' — active' : ''}</td>
+                <td><code style={{ fontSize: '0.8em' }}>{w.path}</code></td>
+                <td className="remove-cell">
+                  {w.path !== data.main && (
+                    <button type="button" className="remove" onClick={() => remove(w.path)} disabled={busyPath === w.path}>
+                      {busyPath === w.path ? 'Removing…' : 'Remove'}
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
 export default function SetupGuide({ repoInfo, onFrameworksRegenerated }) {
   const [config, setConfig] = useState(null);
 
@@ -140,6 +192,13 @@ export default function SetupGuide({ repoInfo, onFrameworksRegenerated }) {
         {repoInfo && (
           <div className="card">
             <div>Repo root: <code>{repoInfo.repoRoot}</code></div>
+            <div className="hint" style={{ marginTop: 4 }}>
+              {repoInfo.repoRootSource === 'worktree'
+                ? "This session's active worktree - use \"Work on a different branch\" above to switch, or the list below."
+                : repoInfo.repoRootSource === 'session-workspace'
+                  ? "This session's own workspace clone."
+                  : 'Set via the REPO_ROOT environment variable (or the saved config file) - restart the server to change it.'}
+            </div>
             <div><StatusDot ok={repoInfo.specificationsDirExists} /> specifications/ folder found</div>
             <div><StatusDot ok={repoInfo.schemaExists} /> ci/component.schema.json found</div>
             <div><StatusDot ok={repoInfo.apiIndexExists} /> apiIndex.json found</div>
@@ -155,14 +214,7 @@ export default function SetupGuide({ repoInfo, onFrameworksRegenerated }) {
         )}
       </div>
 
-      <PathConfig
-        label="Repo root configuration"
-        fieldName="repoRoot"
-        envVarName="REPO_ROOT"
-        placeholder="C:\path\to\TMForum-ODA-Component-Specification checkout"
-        config={config}
-        onSaved={(repoRoot) => setConfig((c) => ({ ...c, repoRoot, source: 'config' }))}
-      />
+      <WorktreesList />
 
       <PathConfig
         label="Frameworks directory configuration"
@@ -199,7 +251,7 @@ frameworks/                                    <- FRAMEWORKS_DIR: eTOM / SID / F
       <div className="field">
         <label>Environment variables</label>
         <ul className="errors-list">
-          <li><code>REPO_ROOT</code> - path to the component spec repo checkout. Precedence: this env var, then the saved setting from the "Repo root configuration" card above, then the built-in default.</li>
+          <li><code>REPO_ROOT</code> - path to the component spec repo checkout. Precedence: this env var, then the saved config file, then the built-in default. Not settable from this page - see the "Repo root" line above, and "Work on a different branch" for switching branches/worktrees within it.</li>
           <li><code>FRAMEWORKS_DIR</code> - path to the frameworks data directory. Precedence: this env var, then the saved setting from the "Frameworks directory configuration" card above, then a bundled <code>frameworks</code> folder shipped next to the app (if present), then the legacy default next to <code>REPO_ROOT</code>.</li>
           <li><code>PORT</code> - server port (default 4310).</li>
         </ul>

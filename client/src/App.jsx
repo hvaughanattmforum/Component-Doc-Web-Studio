@@ -11,6 +11,7 @@ import DescriptionsStep from './steps/DescriptionsStep.jsx';
 import { CommonComponentSidOwnerStep } from './steps/CommonPatternsStep.jsx';
 import SetupGuide from './SetupGuide.jsx';
 import HelpButton from './HelpButton.jsx';
+import BranchSwitcher from './BranchSwitcher.jsx';
 import { stateFromComponent } from './parseComponent.js';
 
 const STEPS = ['Metadata', 'Links', 'Descriptions', 'Exposed APIs', 'Dependent APIs', 'Events', 'Review & Save', 'Document History', 'Common Component–SID Owner Links'];
@@ -140,7 +141,12 @@ export default function App() {
           ) : (
             <strong>{repoInfo.git.remote || 'unknown repo'}</strong>
           )}
-          {repoInfo.git.branch && <> on branch <code>{repoInfo.git.branch}</code></>}
+          {repoInfo.git.branch && (
+            <>
+              {' '}on branch{' '}
+              {authUser ? <BranchSwitcher currentBranch={repoInfo.git.branch} /> : <code>{repoInfo.git.branch}</code>}
+            </>
+          )}
         </p>
       )}
       <p className="subtitle">

@@ -12,6 +12,28 @@ export const api = {
   health: () => fetch(`${BASE}/health`).then(json),
   me: () => fetch(`${BASE}/me`).then(json),
   logout: () => fetch('/auth/logout', { method: 'POST' }).then(json),
+  gitBranches: () => fetch(`${BASE}/git/branches`).then(json),
+  checkoutBranch: (branch) => fetch(`${BASE}/git/checkout`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ branch }),
+  }).then((res) => res.json().then((body) => ({ status: res.status, ...body }))),
+  gitWorktrees: () => fetch(`${BASE}/git/worktrees`).then(json),
+  createWorktree: (branch) => fetch(`${BASE}/git/worktrees`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ branch }),
+  }).then((res) => res.json().then((body) => ({ status: res.status, ...body }))),
+  selectWorktree: (path) => fetch(`${BASE}/git/worktrees/select`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path }),
+  }).then((res) => res.json().then((body) => ({ status: res.status, ...body }))),
+  removeWorktree: (path) => fetch(`${BASE}/git/worktrees`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path }),
+  }).then((res) => res.json().then((body) => ({ status: res.status, ...body }))),
   getConfig: () => fetch(`${BASE}/config`).then(json),
   // partial: { repoRoot? , frameworksDir? } - either or both may be set independently.
   setConfig: (partial) => fetch(`${BASE}/config`, {
