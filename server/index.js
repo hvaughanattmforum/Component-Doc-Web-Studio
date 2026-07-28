@@ -158,9 +158,13 @@ const REPO_ROOT_SOURCE = process.env.REPO_ROOT ? 'env' : (savedConfig.repoRoot ?
 
 // Every route resolves its own repo root through this instead of a module
 // constant, so each signed-in user's requests operate on their own workspace
-// clone (see ensureWorkspace) rather than one shared checkout.
+// clone (see ensureWorkspace) rather than one shared checkout - and, within
+// that, a session can further select a specific git worktree (see
+// req.session.activeRoot / /api/git/worktrees below) to work on a second (or
+// third...) branch side-by-side without disturbing whatever's already
+// checked out (and possibly uncommitted) in the main clone.
 function resolveRepoRoot(req) {
-  return req.workspaceDir || REPO_ROOT;
+  return req.session.activeRoot || req.workspaceDir || REPO_ROOT;
 }
 
 const specificationsDir = (root) => path.join(root, 'specifications');
@@ -408,7 +412,7 @@ app.get('/api/health', (req, res) => {
   res.json({
     ok: true,
     repoRoot: root,
-    repoRootSource: req.workspaceDir ? 'session-workspace' : REPO_ROOT_SOURCE,
+    repoRootSource: req.session.activeRoot ? 'worktree' : req.workspaceDir ? 'session-workspace' : REPO_ROOT_SOURCE,
     specificationsDirExists: fs.existsSync(specificationsDir(root)),
     schemaExists: fs.existsSync(schemaPath(root)),
     apiIndexExists: fs.existsSync(apiIndexPath(root)),
@@ -418,6 +422,188 @@ app.get('/api/health', (req, res) => {
     frameworksDirExists: fs.existsSync(REFERENCE_DATA_DIR),
     frameworksVersions: currentFrameworksVersions(),
   });
+});
+
+// Lists local + remote branches of whichever repo this request resolves to
+// (the signed-in user's own workspace clone, or the shared legacy REPO_ROOT -
+// see resolveRepoRoot), so the client can offer a branch switcher instead of
+// just displaying whatever's currently checked out. Refreshes from origin
+// first (best-effort - a stale/offline fetch just falls back to whatever
+// refs are already known locally rather than failing the request).
+app.get('/api/git/branches', (req, res) => {
+  const root = resolveRepoRoot(req);
+  try {
+    execFileSync('git', ['fetch', '--prune'], { cwd: root, encoding: 'utf8' });
+  } catch {
+    // offline, or no fetch access - branches list just won't include anything new
+  }
+  const raw = runGit(root, ['for-each-ref', '--format=%(refname:short)', 'refs/heads', 'refs/remotes/origin']) || '';
+  const branches = [...new Set(
+    raw.split('\n')
+      .map((b) => b.trim())
+      .filter(Boolean)
+      // refs/remotes/origin/HEAD (the remote's default-branch symref) shortens
+      // to the bare string "origin", not "origin/HEAD" - exclude both forms.
+      .filter((b) => b !== 'origin/HEAD' && b !== 'origin')
+      .map((b) => b.replace(/^origin\//, '')),
+  )].sort();
+  res.json({ ok: true, current: runGit(root, ['rev-parse', '--abbrev-ref', 'HEAD']), branches });
+});
+
+// Switches this request's resolved repo root to a different branch. Refuses
+// if the workspace has uncommitted changes rather than silently discarding
+// or force-switching them - the user needs to save (or knowingly discard)
+// first. Fast-forwards an existing local branch to match origin when it can
+// be done safely (--ff-only); a diverged local branch is left as-is rather
+// than rewritten.
+app.post('/api/git/checkout', (req, res) => {
+  const root = resolveRepoRoot(req);
+  const { branch } = req.body;
+  if (!branch || typeof branch !== 'string' || !/^[\w./-]+$/.test(branch)) {
+    return res.status(400).json({ ok: false, error: 'A valid branch name is required' });
+  }
+  try {
+    if (runGit(root, ['status', '--porcelain'])) {
+      return res.status(409).json({ ok: false, error: 'You have unsaved changes in this workspace - save or discard them before switching branches.' });
+    }
+    execFileSync('git', ['fetch', 'origin', branch], { cwd: root, encoding: 'utf8' });
+    const localExists = runGit(root, ['rev-parse', '--verify', branch]) !== null;
+    execFileSync('git', localExists ? ['checkout', branch] : ['checkout', '-B', branch, `origin/${branch}`], { cwd: root, encoding: 'utf8' });
+    if (localExists) {
+      try {
+        execFileSync('git', ['merge', '--ff-only', `origin/${branch}`], { cwd: root, encoding: 'utf8' });
+      } catch {
+        // local branch has diverged from origin - leave it where it is rather than rewriting it
+      }
+    }
+    res.json({ ok: true, branch: runGit(root, ['rev-parse', '--abbrev-ref', 'HEAD']) });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Parses `git worktree list --porcelain` into [{ path, branch }] - branch is
+// null for a detached-HEAD worktree. Always run against REPO_ROOT (the one
+// checkout guaranteed to exist independent of any session state) since
+// worktree metadata is shared repo-wide - any worktree of a repo can list
+// every other worktree of that same repo.
+function listWorktrees(root) {
+  const raw = runGit(root, ['worktree', 'list', '--porcelain']) || '';
+  const entries = [];
+  let current = null;
+  for (const line of raw.split('\n')) {
+    if (line.startsWith('worktree ')) {
+      current = { path: line.slice('worktree '.length).trim(), branch: null };
+      entries.push(current);
+    } else if (current && line.startsWith('branch ')) {
+      current.branch = line.slice('branch '.length).trim().replace(/^refs\/heads\//, '');
+    }
+  }
+  return entries;
+}
+
+// Worktrees live in a sibling folder next to REPO_ROOT, one subfolder per
+// branch - independent working directories on the same repo/remote, so a
+// second (or third...) branch can be worked on side-by-side without ever
+// touching whatever's already checked out (and possibly uncommitted) in the
+// main REPO_ROOT checkout.
+function worktreePathFor(branch) {
+  const base = `${REPO_ROOT}.worktrees`;
+  return normalizeSlashes(path.join(base, branch.replace(/[\\/:*?"<>|]/g, '_')));
+}
+
+// `git worktree list` always reports paths with forward slashes, even on
+// Windows, while REPO_ROOT/path.join() use the platform's native separator
+// (backslash on Windows) - normalize before any equality check against a
+// worktree path, or e.g. the main checkout would never compare equal to its
+// own entry in that list.
+function normalizeSlashes(p) {
+  return (p || '').replace(/\\/g, '/');
+}
+
+// Lists every worktree of REPO_ROOT's repo (the main checkout plus any
+// branch-specific ones created via POST below), so the client can offer
+// "already have a worktree for this branch - just switch to it" alongside
+// "create a new one."
+app.get('/api/git/worktrees', (req, res) => {
+  try {
+    res.json({
+      ok: true,
+      worktrees: listWorktrees(REPO_ROOT),
+      active: normalizeSlashes(resolveRepoRoot(req)),
+      main: normalizeSlashes(REPO_ROOT),
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Creates (if one doesn't already exist) an independent worktree for the
+// given branch and makes it this session's active root - REPO_ROOT itself,
+// and any other branch's worktree, are left completely alone.
+app.post('/api/git/worktrees', (req, res) => {
+  const { branch } = req.body;
+  if (!branch || typeof branch !== 'string' || !/^[\w./-]+$/.test(branch)) {
+    return res.status(400).json({ ok: false, error: 'A valid branch name is required' });
+  }
+  try {
+    const existing = listWorktrees(REPO_ROOT).find((w) => w.branch === branch);
+    if (existing) {
+      req.session.activeRoot = existing.path;
+      return res.json({ ok: true, path: existing.path, created: false });
+    }
+
+    execFileSync('git', ['fetch', 'origin', branch], { cwd: REPO_ROOT, encoding: 'utf8' });
+    const targetPath = worktreePathFor(branch);
+    const localExists = runGit(REPO_ROOT, ['rev-parse', '--verify', branch]) !== null;
+    execFileSync(
+      'git',
+      localExists ? ['worktree', 'add', targetPath, branch] : ['worktree', 'add', targetPath, '-b', branch, `origin/${branch}`],
+      { cwd: REPO_ROOT, encoding: 'utf8' },
+    );
+    req.session.activeRoot = targetPath;
+    res.json({ ok: true, path: targetPath, created: true });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Switches this session to an already-existing worktree (from the list
+// above) without creating anything.
+app.post('/api/git/worktrees/select', (req, res) => {
+  const { path: worktreePath } = req.body;
+  const known = listWorktrees(REPO_ROOT).some((w) => normalizeSlashes(w.path) === normalizeSlashes(worktreePath));
+  if (!known) {
+    return res.status(400).json({ ok: false, error: 'Not a known worktree of this repo' });
+  }
+  req.session.activeRoot = worktreePath;
+  res.json({ ok: true, path: worktreePath });
+});
+
+// Removes a worktree once you're done with that branch - equivalent to
+// `git worktree remove`. Refuses to remove the main REPO_ROOT checkout
+// (that one isn't a disposable branch worktree) or one with uncommitted
+// changes (matching /api/git/checkout's same safety rule above); resets
+// this session off of it first if it was the active one.
+app.delete('/api/git/worktrees', (req, res) => {
+  const { path: worktreePath } = req.body;
+  if (normalizeSlashes(worktreePath) === normalizeSlashes(REPO_ROOT)) {
+    return res.status(400).json({ ok: false, error: 'The main checkout cannot be removed as a worktree.' });
+  }
+  const known = listWorktrees(REPO_ROOT).some((w) => normalizeSlashes(w.path) === normalizeSlashes(worktreePath));
+  if (!known) {
+    return res.status(400).json({ ok: false, error: 'Not a known worktree of this repo' });
+  }
+  try {
+    if (runGit(worktreePath, ['status', '--porcelain'])) {
+      return res.status(409).json({ ok: false, error: 'That worktree has uncommitted changes - save or discard them before removing it.' });
+    }
+    execFileSync('git', ['worktree', 'remove', worktreePath], { cwd: REPO_ROOT, encoding: 'utf8' });
+    if (normalizeSlashes(req.session.activeRoot) === normalizeSlashes(worktreePath)) delete req.session.activeRoot;
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
 });
 
 // Distinct functionalBlock values seen across existing components, so the
