@@ -2,7 +2,7 @@
   "name": "component-doc-specification-studio",
   "version": "1.0.0",
   "private": true,
-  "description": "Build/package scripts for the ODA Component Doc Specification Studio Windows exe. The app itself lives in server/ and client/.",
+  "description": "ODA Web Studio. The app lives in server/ and client/; see README.md for hosted (Docker) vs legacy desktop-exe deployment. build:client is used by both - the rest of these scripts (package:win, vendor:python, copy:*, dist) are legacy Windows-exe packaging, superseded by the Dockerfile for hosted deployment (see docker-entrypoint.sh) but kept working in case a desktop build is still wanted.",
   "scripts": {
     "build:client": "npm --prefix client run build",
     "build:server": "esbuild server/index.js --bundle --platform=node --format=cjs --outfile=server/dist/bundle.cjs",

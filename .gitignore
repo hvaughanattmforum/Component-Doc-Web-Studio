@@ -1,4 +1,6 @@
 node_modules/
+.env
+.env.*
 # Everything under dist/ is a build artifact except the two packaged exes,
 # which are tracked via Git LFS (see .gitattributes) so they can be
 # distributed straight from the repo.
