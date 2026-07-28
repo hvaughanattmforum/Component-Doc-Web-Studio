@@ -322,6 +322,17 @@ function normalizeDates(value) {
   return value;
 }
 
+// Inverse of the above, applied to yaml.dump's output text: a JS string like
+// "2026-05-11" is inherently ambiguous with YAML's !!timestamp type, so
+// yaml.dump quotes it to preserve its string-ness on a future load (verified:
+// dumping a real Date object instead just produces a full ISO timestamp with
+// a time component, an even bigger mismatch) - unquote it back to match how
+// the files are hand-written, since this app always treats it as a plain
+// YYYY-MM-DD date, never a string with other content.
+function unquoteDate(yamlText) {
+  return yamlText.replace(/^(\s*publicationDate:\s*)'(\d{4}-\d{2}-\d{2})'\s*$/gm, '$1$2');
+}
+
 // Human-friendly "owner/repo" form of a git remote URL, for display only.
 function friendlyRemote(url) {
   if (!url) return null;
@@ -1476,7 +1487,9 @@ async function githubApiRequest(token, method, apiPath, body) {
 
 // Every signed-in user's workspace clone (see ensureWorkspace) commits to its
 // own branch - created lazily on first save, reused for the rest of that
-// session - rather than to the base branch directly.
+// session - rather than to the base branch directly. The user can rename it
+// before pushing (see /api/git/branch-name below) instead of being stuck
+// with the auto-generated default.
 function ensureSessionBranch(req) {
   if (!req.session.branchName) {
     const slug = (req.session.user.login || 'user').toLowerCase().replace(/[^a-z0-9_-]/g, '-');
@@ -1485,16 +1498,34 @@ function ensureSessionBranch(req) {
   return req.session.branchName;
 }
 
-// Commits whatever's currently changed in the session's workspace clone,
-// pushes it to that session's branch, and opens a PR the first time (later
-// saves just push more commits to the same branch/PR) - this is what turns
-// "Save" into "propose a change" instead of writing straight to the shared
-// repo, matching how this app's users already worked by hand (route changes
-// via PR - see feedback_pr_workflow_doc_spec_studio in project memory).
-// Returns { committed: false } with no other side effects if nothing in the
-// workspace actually changed (e.g. a save that reproduces the existing file).
-async function commitAndOpenPR(req, { message, prTitle }) {
-  const root = req.workspaceDir;
+app.get('/api/git/branch-name', (req, res) => {
+  res.json({ ok: true, branch: ensureSessionBranch(req) });
+});
+
+// Renaming intentionally forgets any PR already opened under the old branch
+// name (see commitAndOpenPR) - that PR was tied to that specific head
+// branch, so it no longer applies once the session pushes under a new name.
+app.post('/api/git/branch-name', (req, res) => {
+  const { branch } = req.body;
+  if (!branch || typeof branch !== 'string' || !/^[\w./-]+$/.test(branch)) {
+    return res.status(400).json({ ok: false, error: 'A valid branch name is required' });
+  }
+  req.session.branchName = branch;
+  delete req.session.prUrl;
+  delete req.session.prNumber;
+  res.json({ ok: true, branch });
+});
+
+// Commits whatever's currently changed in this request's resolved repo root
+// (the signed-in user's own workspace clone, an active worktree, or the
+// shared legacy checkout - see resolveRepoRoot) and pushes it to this
+// session's own feature branch (created lazily on first push, reused after)
+// - never to the base branch directly. Does NOT open a PR - see
+// commitAndOpenPR below for that, layered on top. Returns
+// { committed: false } with no other side effects if nothing actually
+// changed (e.g. a push with no new edits since the last one).
+function commitAndPush(req, { message }) {
+  const root = resolveRepoRoot(req);
   const user = req.session.user;
   const branch = ensureSessionBranch(req);
 
@@ -1521,10 +1552,24 @@ async function commitAndOpenPR(req, { message, prTitle }) {
   const pushUrl = remoteUrl.replace('https://', `https://x-access-token:${user.accessToken}@`);
   execFileSync('git', ['push', pushUrl, `HEAD:${branch}`], { cwd: root, encoding: 'utf8' });
 
+  return { committed: true, branch, identity };
+}
+
+// Layers PR creation on top of commitAndPush - this is what turns "push" into
+// "propose a change" instead of just landing a branch on the shared repo,
+// matching how this app's users already worked by hand (route changes via
+// PR - see feedback_pr_workflow_doc_spec_studio in project memory). Reuses
+// the same PR across repeated calls in a session rather than opening a new
+// one each time.
+async function commitAndOpenPR(req, { message, prTitle }) {
+  const result = commitAndPush(req, { message });
+  if (!result.committed) return result;
+
   if (!req.session.prUrl) {
-    const pr = await githubApiRequest(user.accessToken, 'POST', `/repos/${identity.owner}/${identity.repo}/pulls`, {
+    const user = req.session.user;
+    const pr = await githubApiRequest(user.accessToken, 'POST', `/repos/${result.identity.owner}/${result.identity.repo}/pulls`, {
       title: prTitle,
-      head: branch,
+      head: result.branch,
       base: SPEC_REPO_BRANCH,
       body: `Opened automatically by ODA Web Studio on behalf of @${user.login}.`,
     });
@@ -1532,7 +1577,7 @@ async function commitAndOpenPR(req, { message, prTitle }) {
     req.session.prNumber = pr.number;
   }
 
-  return { committed: true, prUrl: req.session.prUrl, prNumber: req.session.prNumber, branch };
+  return { committed: true, prUrl: req.session.prUrl, prNumber: req.session.prNumber, branch: result.branch };
 }
 
 app.post('/api/save', async (req, res) => {
@@ -1560,7 +1605,7 @@ app.post('/api/save', async (req, res) => {
     }
 
     fs.mkdirSync(targetDir, { recursive: true });
-    const yamlText = yaml.dump(component, { sortKeys: false, lineWidth: -1, noArrayIndent: true });
+    const yamlText = unquoteDate(yaml.dump(component, { sortKeys: false, lineWidth: -1, noArrayIndent: true }));
     fs.writeFileSync(targetFile, yamlText, 'utf8');
 
     // Only per-session workspaces (SPEC_REPO_URL configured) can commit/push -
@@ -1573,6 +1618,21 @@ app.post('/api/save', async (req, res) => {
       : null;
 
     res.json({ ok: true, path: targetFile, pr });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Commits and pushes whatever's currently on disk (in this request's
+// resolved repo root - worktree, per-session clone, or the shared legacy
+// checkout) to this session's own feature branch on origin - deliberately
+// no PR creation here, unlike /api/submit-pr below. "Save"/"Save to
+// Worktree" only ever writes locally; this is the explicit, separate action
+// that actually publishes those local commits to the real repo.
+app.post('/api/git/push', (req, res) => {
+  try {
+    const result = commitAndPush(req, { message: `Update component specifications via ODA Web Studio (${req.session.user.login})` });
+    res.json({ ok: true, ...result });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }

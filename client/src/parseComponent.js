@@ -64,8 +64,11 @@ export function stateFromComponent(component) {
     status: meta.status || 'roadmap',
     publicationDate: meta.publicationDate || '',
     functionalBlock: meta.functionalBlock || '',
-    owners: (meta.owners || []).map((o) => ({ name: o.name || '', email: o.email || '', url: o.url || '' })),
-    maintainers: (meta.maintainers || []).map((m) => ({ name: m.name || '', email: m.email || '', url: m.url || '' })),
+    // raw kept (as with API/event entries above) so buildComponent can spread
+    // it back underneath the edited fields, preserving this entry's original
+    // key order instead of always re-emitting name/email/url in that order.
+    owners: (meta.owners || []).map((o) => ({ name: o.name || '', email: o.email || '', url: o.url || '', raw: o })),
+    maintainers: (meta.maintainers || []).map((m) => ({ name: m.name || '', email: m.email || '', url: m.url || '', raw: m })),
     eTOMs: meta.eTOMs || [],
     functionalFrameworkFunctions: meta.functionalFrameworkFunctions || [],
     SIDs: meta.SIDs || [],

@@ -83,12 +83,15 @@ export function buildComponent(state, original) {
     functionalBlock: state.functionalBlock.trim(),
   };
 
+  // Spreading raw first (same pattern as buildApiEntry/buildEventEntry above)
+  // preserves this entry's original key order for an existing owner/
+  // maintainer - only a newly-added one (no raw) falls back to name/email/url.
   const owners = state.owners.filter((o) => o.name || o.email);
-  if (owners.length) componentMetadata.owners = owners.map((o) => ({ name: o.name, email: o.email, url: o.url || 'Redacted' }));
+  if (owners.length) componentMetadata.owners = owners.map((o) => ({ ...(o.raw || {}), name: o.name, email: o.email, url: o.url || 'Redacted' }));
   else delete componentMetadata.owners;
 
   const maintainers = state.maintainers.filter((m) => m.name || m.email);
-  if (maintainers.length) componentMetadata.maintainers = maintainers.map((m) => ({ name: m.name, email: m.email, url: m.url || 'Redacted' }));
+  if (maintainers.length) componentMetadata.maintainers = maintainers.map((m) => ({ ...(m.raw || {}), name: m.name, email: m.email, url: m.url || 'Redacted' }));
   else delete componentMetadata.maintainers;
 
   const eTOMs = (state.eTOMs || []).filter(Boolean);
