@@ -1549,29 +1549,49 @@ function commitAndPush(req, { message }) {
   const remoteUrl = runGit(root, ['remote', 'get-url', 'origin']);
   const identity = repoOwnerAndName(remoteUrl);
   if (!identity) throw new Error(`Could not parse a GitHub owner/repo from remote URL: ${remoteUrl}`);
-  // The token is passed via an environment variable, read by a throwaway
-  // credential-helper shell snippet - never embedded in a URL or any other
-  // argv value. This matters because execFileSync includes the full command
-  // line (every arg, but NOT the env option) in its thrown Error on a failed
-  // command - an argv-embedded token (e.g. https://x-access-token:TOKEN@...)
-  // would otherwise leak into any error surfaced to the client, as happened
-  // here during testing. `-c credential.helper=` first clears any
-  // pre-configured helper (e.g. Windows Credential Manager) so only ours runs.
-  try {
-    execFileSync(
-      'git',
-      [
-        '-c', 'credential.helper=',
-        '-c', 'credential.helper=!f() { echo username=x-access-token; echo "password=$ODA_STUDIO_PUSH_TOKEN"; }; f',
-        'push', 'origin', `HEAD:${branch}`,
-      ],
-      { cwd: root, encoding: 'utf8', env: { ...process.env, ODA_STUDIO_PUSH_TOKEN: user.accessToken } },
-    );
-  } catch (err) {
-    // Defense in depth: the token should never appear in argv/output given
-    // the credential-helper approach above, but strip it anyway in case it
-    // ends up in an error some other way (e.g. a future code path).
-    throw new Error(redactToken(err.message, user.accessToken));
+
+  // Two different push identities depending on mode:
+  //
+  // - Per-session workspace clones (req.workspaceDir set - see
+  //   ensureWorkspace/SPEC_REPO_URL) exist because a *hosted* server has no
+  //   access to any individual user's own git credentials, so it has to
+  //   impersonate them via their signed-in OAuth token instead.
+  //
+  // - Everywhere else (single-checkout/worktree mode - what this app is
+  //   actually run as day to day) the server IS the user's own machine,
+  //   which already has its own working git credentials (SSH key, cached
+  //   PAT, Windows Credential Manager, ...) - using those instead of the
+  //   OAuth token sidesteps GitHub's org-level "third-party app access"
+  //   restriction entirely, since it's then a plain `git push` exactly like
+  //   the user would run by hand, not an OAuth App acting on their behalf.
+  if (req.workspaceDir) {
+    // The token is passed via an environment variable, read by a throwaway
+    // credential-helper shell snippet - never embedded in a URL or any other
+    // argv value. This matters because execFileSync includes the full
+    // command line (every arg, but NOT the env option) in its thrown Error
+    // on a failed command - an argv-embedded token (e.g.
+    // https://x-access-token:TOKEN@...) would otherwise leak into any error
+    // surfaced to the client, as happened here during testing.
+    // `-c credential.helper=` first clears any pre-configured helper (e.g.
+    // Windows Credential Manager) so only ours runs.
+    try {
+      execFileSync(
+        'git',
+        [
+          '-c', 'credential.helper=',
+          '-c', 'credential.helper=!f() { echo username=x-access-token; echo "password=$ODA_STUDIO_PUSH_TOKEN"; }; f',
+          'push', 'origin', `HEAD:${branch}`,
+        ],
+        { cwd: root, encoding: 'utf8', env: { ...process.env, ODA_STUDIO_PUSH_TOKEN: user.accessToken } },
+      );
+    } catch (err) {
+      // Defense in depth: the token should never appear in argv/output given
+      // the credential-helper approach above, but strip it anyway in case it
+      // ends up in an error some other way (e.g. a future code path).
+      throw new Error(redactToken(err.message, user.accessToken));
+    }
+  } else {
+    execFileSync('git', ['push', 'origin', `HEAD:${branch}`], { cwd: root, encoding: 'utf8' });
   }
 
   return { committed: true, branch, identity };
