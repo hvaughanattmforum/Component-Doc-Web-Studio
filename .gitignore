@@ -17,3 +17,8 @@ installer/payload/public.zip
 installer/payload/scripts.zip
 installer/payload/frameworks.zip
 *.log
+infra/terraform/.terraform/
+infra/terraform/*.tfstate
+infra/terraform/*.tfstate.*
+infra/terraform/*.tfvars
+# .terraform.lock.hcl is intentionally NOT ignored - it pins provider versions and should be committed.

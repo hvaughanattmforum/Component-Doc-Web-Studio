@@ -1,0 +1,42 @@
+name: Deploy to App Runner
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write # required for OIDC federation to AWS - no static keys stored in this repo
+  contents: read
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Log in to ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push image
+        env:
+          REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build \
+            -t "$REGISTRY/$REPOSITORY:$IMAGE_TAG" \
+            -t "$REGISTRY/$REPOSITORY:latest" \
+            .
+          docker push "$REGISTRY/$REPOSITORY:$IMAGE_TAG"
+          docker push "$REGISTRY/$REPOSITORY:latest"
+
+      - name: Trigger App Runner deployment
+        run: aws apprunner start-deployment --service-arn "${{ vars.APP_RUNNER_SERVICE_ARN }}"
