@@ -174,7 +174,9 @@ export default function ReviewStep({ state, original, originalLocation, mode }) 
         <button className={hasSavedCurrentContent ? 'save' : 'save-solid'} onClick={() => runSave(false)} disabled={busy || hasSavedCurrentContent || !hasValidatedCurrentContent}>Save to Worktree</button>
       </div>
 
-      <pre className="yaml-preview">{yamlText}</pre>
+      {/* No YAML preview here anymore - it's now shown persistently in the
+          shell's right-hand pane (see App.jsx's previewYamlText) across
+          every step, not just this one. */}
 
       <div className="field" style={{ marginTop: 16 }}>
         <label>Branch name to be created on origin Repo (use meaningful e.g. fix/20260729-TMFC003)</label>
