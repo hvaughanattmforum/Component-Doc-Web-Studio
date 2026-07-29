@@ -59,8 +59,13 @@ session branch and open a PR on their behalf.
 
 ## Hosted deployment
 
-Build and run the Docker image (Node + Python3 + the built client baked in
-- see [`Dockerfile`](Dockerfile)):
+For AWS App Runner (recommended - lowest ops overhead for this app's
+single-instance constraint), see [`infra/terraform/`](infra/terraform/README.md),
+which provisions ECR, the App Runner service pinned to one instance, the
+Secrets Manager entries, and a GitHub Actions OIDC deploy role.
+
+To build and run the Docker image directly (Node + Python3 + the built
+client baked in - see [`Dockerfile`](Dockerfile)):
 
 ```
 docker build -t oda-web-studio .
