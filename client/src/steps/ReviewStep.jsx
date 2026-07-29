@@ -10,20 +10,33 @@ export default function ReviewStep({ state, original, originalLocation, mode }) 
   const [busy, setBusy] = useState(false);
   const [pushing, setPushing] = useState(false);
   const [branchName, setBranchName] = useState('');
-  const [savedBranchName, setSavedBranchName] = useState(''); // last name confirmed with the server
   const [renaming, setRenaming] = useState(false);
   const [renameError, setRenameError] = useState(null);
+  // Push stays disabled until this specific name has been explicitly
+  // confirmed via the button below - editing the text box again (even back
+  // to a previously-confirmed value) requires re-confirming before Push
+  // re-enables, so Push can never fire against a name the user hasn't
+  // actually clicked to confirm.
+  const [confirmed, setConfirmed] = useState(false);
+  // Set to the exact YAML text that was actually written to disk by the
+  // most recent successful save - compared against the live yamlText below
+  // to tell whether "the current content" has been saved yet, rather than
+  // just "was Save ever clicked."
+  const [lastSavedYamlText, setLastSavedYamlText] = useState(null);
+  // Same idea for Validate: the exact YAML text as of the most recent
+  // validate call, regardless of whether it passed.
+  const [lastValidatedYamlText, setLastValidatedYamlText] = useState(null);
 
   useEffect(() => {
-    api.branchName().then((r) => { setBranchName(r.branch); setSavedBranchName(r.branch); }).catch(() => {});
+    api.branchName().then((r) => setBranchName(r.branch)).catch(() => {});
   }, []);
 
-  const renameBranch = async () => {
+  const confirmBranchName = async () => {
     setRenaming(true);
     setRenameError(null);
     try {
       const result = await api.setBranchName(branchName.trim());
-      if (result.ok) { setBranchName(result.branch); setSavedBranchName(result.branch); }
+      if (result.ok) { setBranchName(result.branch); setConfirmed(true); }
       else setRenameError(result.error);
     } catch (err) {
       setRenameError(err.message);
@@ -45,6 +58,7 @@ export default function ReviewStep({ state, original, originalLocation, mode }) 
     } catch (err) {
       setValidation({ valid: false, errors: [{ message: err.message }] });
     } finally {
+      setLastValidatedYamlText(yamlText);
       setBusy(false);
     }
   };
@@ -54,13 +68,28 @@ export default function ReviewStep({ state, original, originalLocation, mode }) 
     try {
       const result = await api.save({ component, dirName, fileName, force: force || mode === 'edit' });
       setSaveResult(result);
-      if (result.ok) setValidation({ valid: true, errors: [] });
+      if (result.ok) { setValidation({ valid: true, errors: [] }); setLastSavedYamlText(yamlText); }
     } catch (err) {
       setSaveResult({ ok: false, error: err.message });
     } finally {
       setBusy(false);
     }
   };
+
+  // True only once the *current* YAML content has actually passed
+  // validation - editing anything afterward flips this back to false until
+  // Validate runs again, same pattern as hasSavedCurrentContent below.
+  const hasValidatedCurrentContent = validation?.valid === true && lastValidatedYamlText === yamlText;
+
+  // True only once the *current* YAML content (not just some earlier
+  // version of it) has been successfully saved - editing anything after a
+  // save flips this back to false until Save to Worktree runs again.
+  const hasSavedCurrentContent = lastSavedYamlText !== null && yamlText === lastSavedYamlText;
+
+  // Push only looks "ready" (bold/primary) once a save of the current
+  // content has actually happened - and stays disabled outright until both
+  // that save and the branch-name confirmation have happened.
+  const canPush = hasSavedCurrentContent && confirmed;
 
   // Separate from Save above: Save only ever writes locally (to the active
   // worktree/workspace); this is the explicit, deliberate action that
@@ -72,6 +101,11 @@ export default function ReviewStep({ state, original, originalLocation, mode }) 
     try {
       const result = await api.pushToOrigin();
       setPushResult(result);
+      // Back to the initial gated state after an actual push - Save to
+      // Worktree re-enables, Confirm re-greys, Push re-disables - so the
+      // next push requires the whole save-then-confirm sequence again
+      // rather than firing again against content that's already been sent.
+      if (result.ok && result.committed) { setLastSavedYamlText(null); setConfirmed(false); }
     } catch (err) {
       setPushResult({ ok: false, error: err.message });
     } finally {
@@ -135,30 +169,44 @@ export default function ReviewStep({ state, original, originalLocation, mode }) 
         <div className="status-banner error">{pushResult.error}</div>
       )}
 
-      <div className="field">
-        <label>Branch name (used by "Push to origin Repo")</label>
+      <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+        <button className={hasValidatedCurrentContent ? '' : 'save'} onClick={runValidate} disabled={busy}>Validate</button>
+        <button className="save" onClick={() => runSave(false)} disabled={busy || hasSavedCurrentContent || !hasValidatedCurrentContent}>Save to Worktree</button>
+      </div>
+
+      <pre className="yaml-preview">{yamlText}</pre>
+
+      <div className="field" style={{ marginTop: 16 }}>
+        <label>Branch name to be created on origin Repo (use meaningful e.g. fix/20260729-TMFC003)</label>
         <div style={{ display: 'flex', gap: 8 }}>
           <input
             type="text"
             value={branchName}
-            onChange={(e) => setBranchName(e.target.value)}
+            onChange={(e) => { setBranchName(e.target.value); setConfirmed(false); }}
             style={{ flex: 1 }}
             disabled={renaming}
           />
-          <button type="button" onClick={renameBranch} disabled={renaming || !branchName.trim() || branchName.trim() === savedBranchName}>
-            {renaming ? 'Renaming…' : 'Rename'}
+          <button
+            type="button"
+            className={hasSavedCurrentContent ? 'save' : ''}
+            onClick={confirmBranchName}
+            disabled={renaming || !branchName.trim() || !hasSavedCurrentContent}
+          >
+            {renaming
+              ? 'Confirming…'
+              : confirmed
+                ? 'Change Name of branch in Origin repo'
+                : 'Confirm Branch Name to be created in Origin Repo'}
           </button>
         </div>
         {renameError && <div className="hint" style={{ color: 'var(--danger)', marginTop: 4 }}>{renameError}</div>}
       </div>
 
-      <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
-        <button onClick={runValidate} disabled={busy}>Validate</button>
-        <button className="save" onClick={() => runSave(false)} disabled={busy}>Save to Worktree</button>
-        <button className="primary" onClick={runPush} disabled={pushing}>{pushing ? 'Pushing…' : 'Push to origin Repo'}</button>
+      <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
+        <button className={canPush ? 'primary' : ''} onClick={runPush} disabled={pushing || !canPush}>
+          {pushing ? 'Pushing…' : 'Push to origin Repo'}
+        </button>
       </div>
-
-      <pre className="yaml-preview">{yamlText}</pre>
     </div>
   );
 }

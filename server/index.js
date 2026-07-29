@@ -340,6 +340,25 @@ function friendlyRemote(url) {
   return m ? m[1] : url;
 }
 
+// Defers to git's own ref-name rules (`git check-ref-format`) rather than a
+// hand-rolled regex - git's actual rules are more particular than "only
+// these characters" (e.g. no leading/trailing slash, no "//", no leading/
+// trailing dot, no ".." anywhere), and a regex that doesn't also encode
+// those catches too little: a name like "/fix/mynewbranch4" passes a plain
+// [\w./-]+ character-class check but is still rejected by git itself,
+// surfacing as a raw "Command failed: git checkout -b ..." error instead of
+// a clear validation message. This command doesn't need repo context, so no
+// cwd is passed.
+function isValidGitBranchName(branch) {
+  if (!branch || typeof branch !== 'string') return false;
+  try {
+    execFileSync('git', ['check-ref-format', '--branch', branch], { encoding: 'utf8' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function runGit(root, args) {
   try {
     return execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
@@ -470,8 +489,8 @@ app.get('/api/git/branches', (req, res) => {
 app.post('/api/git/checkout', (req, res) => {
   const root = resolveRepoRoot(req);
   const { branch } = req.body;
-  if (!branch || typeof branch !== 'string' || !/^[\w./-]+$/.test(branch)) {
-    return res.status(400).json({ ok: false, error: 'A valid branch name is required' });
+  if (!isValidGitBranchName(branch)) {
+    return res.status(400).json({ ok: false, error: `'${branch}' is not a valid git branch name` });
   }
   try {
     if (runGit(root, ['status', '--porcelain'])) {
@@ -554,8 +573,8 @@ app.get('/api/git/worktrees', (req, res) => {
 // and any other branch's worktree, are left completely alone.
 app.post('/api/git/worktrees', (req, res) => {
   const { branch } = req.body;
-  if (!branch || typeof branch !== 'string' || !/^[\w./-]+$/.test(branch)) {
-    return res.status(400).json({ ok: false, error: 'A valid branch name is required' });
+  if (!isValidGitBranchName(branch)) {
+    return res.status(400).json({ ok: false, error: `'${branch}' is not a valid git branch name` });
   }
   try {
     const existing = listWorktrees(REPO_ROOT).find((w) => w.branch === branch);
@@ -1507,8 +1526,8 @@ app.get('/api/git/branch-name', (req, res) => {
 // branch, so it no longer applies once the session pushes under a new name.
 app.post('/api/git/branch-name', (req, res) => {
   const { branch } = req.body;
-  if (!branch || typeof branch !== 'string' || !/^[\w./-]+$/.test(branch)) {
-    return res.status(400).json({ ok: false, error: 'A valid branch name is required' });
+  if (!isValidGitBranchName(branch)) {
+    return res.status(400).json({ ok: false, error: `'${branch}' is not a valid git branch name` });
   }
   req.session.branchName = branch;
   delete req.session.prUrl;
