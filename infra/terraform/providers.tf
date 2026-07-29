@@ -4,7 +4,7 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 5.0"
+      version = ">= 6.34.0" # the express-service module requires >= 6.34.0
     }
     tls = {
       source  = "hashicorp/tls"

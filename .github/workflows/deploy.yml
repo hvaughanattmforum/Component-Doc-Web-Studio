@@ -1,4 +1,4 @@
-name: Deploy to App Runner
+name: Deploy to ECS Express Mode
 
 on:
   push:
@@ -31,12 +31,16 @@ jobs:
           REPOSITORY: ${{ vars.ECR_REPOSITORY }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          docker build \
+          docker build --provenance=false --sbom=false \
             -t "$REGISTRY/$REPOSITORY:$IMAGE_TAG" \
             -t "$REGISTRY/$REPOSITORY:latest" \
             .
           docker push "$REGISTRY/$REPOSITORY:$IMAGE_TAG"
           docker push "$REGISTRY/$REPOSITORY:latest"
 
-      - name: Trigger App Runner deployment
-        run: aws apprunner start-deployment --service-arn "${{ vars.APP_RUNNER_SERVICE_ARN }}"
+      - name: Deploy to ECS Express Mode
+        run: |
+          aws ecs update-service \
+            --cluster "${{ vars.ECS_CLUSTER }}" \
+            --service "${{ vars.ECS_SERVICE }}" \
+            --force-new-deployment

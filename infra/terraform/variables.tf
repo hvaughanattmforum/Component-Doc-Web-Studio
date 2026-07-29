@@ -4,7 +4,7 @@ variable "aws_region" {
 }
 
 variable "app_name" {
-  description = "Base name for all resources (ECR repo, App Runner service, IAM roles)"
+  description = "Base name for all resources (ECR repo, ECS Express service, IAM roles)"
   type        = string
   default     = "oda-web-studio"
 }
@@ -34,7 +34,7 @@ variable "spec_repo_branch" {
 }
 
 variable "github_callback_url" {
-  description = "GitHub OAuth callback URL. Leave blank for the first apply (App Runner's own URL isn't known yet) - see README for the two-step bootstrap."
+  description = "GitHub OAuth callback URL. Leave blank for the first apply (the ECS Express service's own URL isn't known yet) - see README for the two-step bootstrap."
   type        = string
   default     = ""
 }
@@ -46,7 +46,7 @@ variable "allowed_origin" {
 }
 
 variable "custom_domain" {
-  description = "Optional custom domain to associate with the App Runner service. Leave blank to use the default *.awsapprunner.com domain."
+  description = "Not wired up yet for ECS Express Mode (custom domains there go through the ALB's listener + an ACM cert - see AWS's App Runner -> ECS Express Mode migration guide). Reserved for when that's added."
   type        = string
   default     = ""
 }
