@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
+import yaml from 'js-yaml';
 import { api } from './api.js';
+import { buildComponent } from './buildComponent.js';
 import StartScreen from './steps/StartScreen.jsx';
 import MetadataStep from './steps/MetadataStep.jsx';
 import LinksStep from './steps/LinksStep.jsx';
@@ -14,7 +16,7 @@ import HelpButton from './HelpButton.jsx';
 import BranchSwitcher from './BranchSwitcher.jsx';
 import { stateFromComponent } from './parseComponent.js';
 
-const STEPS = ['Metadata', 'Links', 'Descriptions', 'Exposed APIs', 'Dependent APIs', 'Events', 'Review & Save', 'Document History', 'Common Component–SID Owner Links'];
+const STEPS = ['Metadata', 'Links', 'Descriptions', 'Exposed APIs', 'Dependent APIs', 'Events', 'Review & Save', 'Document History', 'SID Owner'];
 
 // Which file each step edits: most steps build up `state` and only write it
 // to the component's main YAML when Review & Save is used, while Links,
@@ -116,6 +118,14 @@ export default function App() {
     setStep(0);
   };
 
+  // Live preview shown persistently in the right-hand pane while a wizard is
+  // in progress - read-only, purely a mirror of buildComponent(state,
+  // original) (the same function ReviewStep uses for the real save/validate
+  // calls), so it can never drift from what those actions would actually do.
+  const previewYamlText = mode !== null
+    ? yaml.dump(buildComponent(state, original), { sortKeys: false, lineWidth: -1, noArrayIndent: true })
+    : '';
+
   return (
     <div className="app">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
@@ -181,107 +191,110 @@ export default function App() {
       )}
 
       {view === 'wizard' && mode !== null && (
-        <>
-          <div className="steps" style={{ marginBottom: 12 }}>
-            <button className="step-pill" onClick={backToStart}>&larr; Start over</button>
-          </div>
-          <div className="step-groups">
+        <div className="shell">
+          <div className="rail">
+            <button className="rail-item rail-start-over" onClick={backToStart}>&larr; Start over</button>
             {STEP_GROUPS.map((group, groupIdx) => (
-              <div className="step-group" key={group.label}>
-                <span className="step-group-label">{group.label}</span>
+              <div className="rail-group" key={group.label}>
+                <div className="step-group-label">{group.label}</div>
                 {group.indices.map((i, posIdx) => (
                   <button
                     key={STEPS[i]}
-                    className={`step-pill ${i === step ? 'active' : ''}`}
+                    className={`rail-item ${i === step ? 'active' : ''}`}
                     onClick={() => setStep(i)}
                   >
-                    {groupIdx + 1}.{posIdx + 1}. {STEPS[i]}
+                    <span className="n">{groupIdx + 1}.{posIdx + 1}</span> {STEPS[i]}
                   </button>
                 ))}
               </div>
             ))}
-          </div>
-          <div className="step-groups">
-            <div className="step-group" key={COMMON_PATTERNS_GROUP.label}>
-              <span className="step-group-label">{COMMON_PATTERNS_GROUP.label}</span>
+            <div className="rail-group" key={COMMON_PATTERNS_GROUP.label}>
+              <div className="step-group-label">{COMMON_PATTERNS_GROUP.label}</div>
               {COMMON_PATTERNS_GROUP.indices.map((i, posIdx) => (
                 <button
                   key={STEPS[i]}
-                  className={`step-pill ${i === step ? 'active' : ''}`}
+                  className={`rail-item ${i === step ? 'active' : ''}`}
                   onClick={() => setStep(i)}
                 >
-                  {STEP_GROUPS.length + 1}.{posIdx + 1}. {STEPS[i]}
+                  <span className="n">{STEP_GROUPS.length + 1}.{posIdx + 1}</span> {STEPS[i]}
                 </button>
               ))}
             </div>
           </div>
 
-          {mode === 'edit' && (
-            <div className="status-banner ok" style={{ marginBottom: 16 }}>
-              Editing existing component {originalLocation?.dirName}. ID and name are locked to avoid orphaning its conformance profile/RI/diagram folders.
+          <div className="main">
+            {mode === 'edit' && (
+              <div className="status-banner ok" style={{ marginBottom: 16 }}>
+                Editing existing component {originalLocation?.dirName}. ID and name are locked to avoid orphaning its conformance profile/RI/diagram folders.
+              </div>
+            )}
+
+            {apiCatalogError && [3, 4, 5].includes(step) && (
+              <div className="status-banner error" style={{ marginBottom: 16 }}>
+                Couldn't load the API catalog ({apiCatalogError}). The resource/event pickers can't resolve any
+                API to its swagger spec until this succeeds — every API will show "No catalog entry found."{' '}
+                <button type="button" onClick={refreshApiCatalog}>Retry</button>
+              </div>
+            )}
+
+            {step === 0 && (
+              <MetadataStep
+                state={state}
+                setState={setState}
+                functionalBlocks={functionalBlocks}
+                locked={mode === 'edit'}
+              />
+            )}
+            {step === 1 && (
+              <LinksStep dirName={originalLocation?.dirName} eTOMs={state.eTOMs} SIDs={state.SIDs} />
+            )}
+            {step === 2 && (
+              <DescriptionsStep
+                dirName={originalLocation?.dirName}
+                eTOMs={state.eTOMs}
+                functionalFrameworkFunctions={state.functionalFrameworkFunctions}
+              />
+            )}
+            {step === 3 && (
+              <ApiListStep
+                title="Exposed APIs"
+                requiredMeaning="Mandatory for Conformance"
+                items={state.exposedAPIs}
+                onChange={(v) => setState({ ...state, exposedAPIs: v })}
+                apiCatalog={apiCatalog}
+              />
+            )}
+            {step === 4 && (
+              <ApiListStep
+                title="Dependent APIs"
+                requiredMeaning="Mandatory Dependency"
+                items={state.dependentAPIs}
+                onChange={(v) => setState({ ...state, dependentAPIs: v })}
+                apiCatalog={apiCatalog}
+              />
+            )}
+            {step === 5 && (
+              <EventsStep state={state} setState={setState} apiCatalog={apiCatalog} />
+            )}
+            {step === 6 && (
+              <ReviewStep state={state} original={original} originalLocation={originalLocation} mode={mode} />
+            )}
+            {step === 7 && (
+              <DocumentHistoryStep dirName={originalLocation?.dirName} />
+            )}
+            {step === 8 && <CommonComponentSidOwnerStep />}
+
+            <div className="nav-buttons">
+              <button onClick={() => setStep((s) => Math.max(0, s - 1))} disabled={step === 0}>Back</button>
+              <button onClick={() => setStep((s) => Math.min(STEPS.length - 1, s + 1))} disabled={step === STEPS.length - 1}>Next</button>
             </div>
-          )}
-
-          {apiCatalogError && [3, 4, 5].includes(step) && (
-            <div className="status-banner error" style={{ marginBottom: 16 }}>
-              Couldn't load the API catalog ({apiCatalogError}). The resource/event pickers can't resolve any
-              API to its swagger spec until this succeeds — every API will show "No catalog entry found."{' '}
-              <button type="button" onClick={refreshApiCatalog}>Retry</button>
-            </div>
-          )}
-
-          {step === 0 && (
-            <MetadataStep
-              state={state}
-              setState={setState}
-              functionalBlocks={functionalBlocks}
-              locked={mode === 'edit'}
-            />
-          )}
-          {step === 1 && (
-            <LinksStep dirName={originalLocation?.dirName} eTOMs={state.eTOMs} SIDs={state.SIDs} />
-          )}
-          {step === 2 && (
-            <DescriptionsStep
-              dirName={originalLocation?.dirName}
-              eTOMs={state.eTOMs}
-              functionalFrameworkFunctions={state.functionalFrameworkFunctions}
-            />
-          )}
-          {step === 3 && (
-            <ApiListStep
-              title="Exposed APIs"
-              requiredMeaning="Mandatory for Conformance"
-              items={state.exposedAPIs}
-              onChange={(v) => setState({ ...state, exposedAPIs: v })}
-              apiCatalog={apiCatalog}
-            />
-          )}
-          {step === 4 && (
-            <ApiListStep
-              title="Dependent APIs"
-              requiredMeaning="Mandatory Dependency"
-              items={state.dependentAPIs}
-              onChange={(v) => setState({ ...state, dependentAPIs: v })}
-              apiCatalog={apiCatalog}
-            />
-          )}
-          {step === 5 && (
-            <EventsStep state={state} setState={setState} apiCatalog={apiCatalog} />
-          )}
-          {step === 6 && (
-            <ReviewStep state={state} original={original} originalLocation={originalLocation} mode={mode} />
-          )}
-          {step === 7 && (
-            <DocumentHistoryStep dirName={originalLocation?.dirName} />
-          )}
-          {step === 8 && <CommonComponentSidOwnerStep />}
-
-          <div className="nav-buttons">
-            <button onClick={() => setStep((s) => Math.max(0, s - 1))} disabled={step === 0}>Back</button>
-            <button onClick={() => setStep((s) => Math.min(STEPS.length - 1, s + 1))} disabled={step === STEPS.length - 1}>Next</button>
           </div>
-        </>
+
+          <div className="yaml-pane">
+            <div className="yaml-head"><b>Live YAML</b><span>read-only, updates as you edit</span></div>
+            <pre className="yaml-live">{previewYamlText}</pre>
+          </div>
+        </div>
       )}
       </>
       )}
