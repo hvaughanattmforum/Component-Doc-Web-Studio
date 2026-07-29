@@ -1,60 +1,5 @@
-# --- Instance role: what the running container itself is allowed to do ---
-# (App Runner resolves runtime_environment_secrets using this role.)
-
-data "aws_iam_policy_document" "apprunner_instance_assume" {
-  statement {
-    actions = ["sts:AssumeRole"]
-    principals {
-      type        = "Service"
-      identifiers = ["tasks.apprunner.amazonaws.com"]
-    }
-  }
-}
-
-resource "aws_iam_role" "apprunner_instance" {
-  name               = "${var.app_name}-apprunner-instance"
-  assume_role_policy = data.aws_iam_policy_document.apprunner_instance_assume.json
-}
-
-data "aws_iam_policy_document" "apprunner_instance_secrets" {
-  statement {
-    actions = ["secretsmanager:GetSecretValue"]
-    resources = [
-      aws_secretsmanager_secret.session_secret.arn,
-      aws_secretsmanager_secret.github_client_id.arn,
-      aws_secretsmanager_secret.github_client_secret.arn,
-    ]
-  }
-}
-
-resource "aws_iam_role_policy" "apprunner_instance_secrets" {
-  name   = "${var.app_name}-read-secrets"
-  role   = aws_iam_role.apprunner_instance.id
-  policy = data.aws_iam_policy_document.apprunner_instance_secrets.json
-}
-
-# --- Access role: what App Runner's build/deploy machinery uses to pull ---
-# --- the image from ECR (separate from the instance role above) ---
-
-data "aws_iam_policy_document" "apprunner_access_assume" {
-  statement {
-    actions = ["sts:AssumeRole"]
-    principals {
-      type        = "Service"
-      identifiers = ["build.apprunner.amazonaws.com"]
-    }
-  }
-}
-
-resource "aws_iam_role" "apprunner_access" {
-  name               = "${var.app_name}-apprunner-access"
-  assume_role_policy = data.aws_iam_policy_document.apprunner_access_assume.json
-}
-
-resource "aws_iam_role_policy_attachment" "apprunner_access_ecr" {
-  role       = aws_iam_role.apprunner_access.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSAppRunnerServicePolicyForECRAccess"
-}
+# Execution / infrastructure / task IAM roles for the ECS Express service
+# are created by the module itself - see ecs-express.tf.
 
 # --- GitHub Actions deploy role: OIDC federation, no long-lived AWS keys ---
 # --- in the repo's CI secrets ---
@@ -117,9 +62,14 @@ data "aws_iam_policy_document" "github_actions_permissions" {
     resources = [aws_ecr_repository.app.arn]
   }
   statement {
-    sid       = "AppRunnerDeploy"
-    actions   = ["apprunner:StartDeployment", "apprunner:DescribeService"]
-    resources = [aws_apprunner_service.app.arn]
+    sid       = "EcsDeploy"
+    actions   = ["ecs:UpdateService", "ecs:DescribeServices", "ecs:DescribeTaskDefinition", "ecs:RegisterTaskDefinition"]
+    resources = ["*"] # Express Mode manages the underlying task definition itself; no single resource ARN to scope to before first apply.
+  }
+  statement {
+    sid       = "PassExpressServiceRoles"
+    actions   = ["iam:PassRole"]
+    resources = [module.express_service.execution_iam_role_arn, module.express_service.task_iam_role_arn]
   }
 }
 

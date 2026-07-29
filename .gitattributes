@@ -1,1 +1,7 @@
 /dist/*.exe filter=lfs diff=lfs merge=lfs -text
+
+# Must stay LF - executed by shebang inside a Linux container. On Windows
+# with core.autocrlf=true, git would otherwise check this out as CRLF,
+# breaking `exec docker-entrypoint.sh` with a misleading "no such file or
+# directory" (the kernel looks for an interpreter literally named "/bin/sh\r").
+*.sh text eol=lf

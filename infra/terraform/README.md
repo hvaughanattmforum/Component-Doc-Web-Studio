@@ -1,9 +1,19 @@
-# App Runner deployment (Terraform)
+# ECS Express Mode deployment (Terraform)
 
-Provisions: an ECR repo, a single-instance App Runner service (see
-`apprunner.tf` for why it's pinned to 1 instance), the three Secrets Manager
-containers the app needs, and a GitHub Actions OIDC deploy role (no static
-AWS keys stored in the repo).
+Provisions: an ECR repo, a single-task Amazon ECS Express Mode service (see
+`ecs-express.tf` for why it's pinned to 1 task - the app keeps sessions in
+memory and per-user workspace clones on local disk), the three Secrets
+Manager containers the app needs, and a GitHub Actions OIDC deploy role (no
+static AWS keys stored in the repo).
+
+This replaces an earlier AWS App Runner scaffold (see git history:
+`apprunner.tf`) - AWS closed App Runner to new customers on 2026-04-30
+(https://docs.aws.amazon.com/apprunner/latest/dg/apprunner-availability-change.html),
+and this account had never created an App Runner service before, so every
+deployment attempt silently failed. ECS Express Mode is AWS's own
+recommended replacement, and (per its own design) needs far less manual
+bootstrapping than App Runner did - one resource provisions the Fargate
+service, ALB, auto scaling and networking.
 
 State is local (`terraform.tfstate` in this directory, gitignored) for a
 first launch. If more than one person will run `terraform apply` against
@@ -12,32 +22,28 @@ happens - two people applying from local state will clobber each other.
 
 ## Prerequisites
 
-- Terraform >= 1.5, AWS CLI, Docker, credentials for an AWS account/region you
+- Terraform >= 1.5, Docker, credentials for an AWS account/region you
   control.
 - A GitHub OAuth App - see the main [README.md](../../README.md#github-oauth-app)
   for how to register one. You'll come back to update its callback URL once
-  the App Runner URL is known (step 4 below).
+  the ECS Express service's URL is known (step 3 below).
 
-## Bootstrapping (order matters - there's a real chicken-and-egg here)
+## Bootstrapping
 
-App Runner needs an image in ECR before the service can be created, and the
-service's own URL isn't known until after it's created - so this is a few
-distinct passes, not one `apply`.
+Unlike App Runner, there's no strict ordering requirement here - Terraform
+figures out the dependency graph itself (secret containers and the ECR repo
+before the service that references them). The one real prerequisite is an
+image in ECR for the service to pull on creation.
 
-1. **Create the ECR repo and IAM roles only:**
-
-   ```bash
-   terraform init
-   terraform apply -target=aws_ecr_repository.app -target=aws_ecr_lifecycle_policy.app \
-     -target=aws_iam_role.apprunner_instance -target=aws_iam_role_policy.apprunner_instance_secrets \
-     -target=aws_iam_role.apprunner_access -target=aws_iam_role_policy_attachment.apprunner_access_ecr \
-     -target=aws_secretsmanager_secret.session_secret -target=aws_secretsmanager_secret.github_client_id \
-     -target=aws_secretsmanager_secret.github_client_secret
-   ```
-
-2. **Populate the secrets** (values never live in Terraform):
+1. **Build and push an initial image**, and populate the 3 secrets (values
+   never live in Terraform):
 
    ```bash
+   aws ecr get-login-password --region <region> | \
+     docker login --username AWS --password-stdin <account-id>.dkr.ecr.<region>.amazonaws.com
+   docker build --provenance=false --sbom=false -t <account-id>.dkr.ecr.<region>.amazonaws.com/oda-web-studio:latest ..
+   docker push <account-id>.dkr.ecr.<region>.amazonaws.com/oda-web-studio:latest
+
    aws secretsmanager put-secret-value --secret-id oda-web-studio/session-secret \
      --secret-string "$(openssl rand -hex 32)"
    aws secretsmanager put-secret-value --secret-id oda-web-studio/github-client-id \
@@ -46,40 +52,33 @@ distinct passes, not one `apply`.
      --secret-string "<GitHub OAuth App client secret>"
    ```
 
-3. **Build and push an initial image** so the App Runner service has something
-   to pull on creation:
+   (`--provenance=false --sbom=false` avoids BuildKit's default attestation
+   manifest, which some AWS services have had compatibility issues with -
+   harmless to keep even if not strictly required on ECS.)
+
+2. **Apply everything:**
 
    ```bash
-   aws ecr get-login-password --region <region> | \
-     docker login --username AWS --password-stdin <account-id>.dkr.ecr.<region>.amazonaws.com
-   docker build -t <account-id>.dkr.ecr.<region>.amazonaws.com/oda-web-studio:latest ..
-   docker push <account-id>.dkr.ecr.<region>.amazonaws.com/oda-web-studio:latest
-   ```
-
-4. **Apply everything else** (the App Runner service, auto-scaling config,
-   GitHub OIDC deploy role):
-
-   ```bash
+   terraform init
    terraform apply
    ```
 
-   Note `apprunner_service_url` from the output.
+   Note `ecs_service_url` from the output.
 
-5. **Close the loop**: update the GitHub OAuth App's callback URL to
-   `https://<apprunner_service_url>/auth/github/callback` (or your
-   `custom_domain` if set), then set `github_callback_url` and
-   `allowed_origin` in `terraform.tfvars` to match, and `terraform apply`
+3. **Close the loop**: update the GitHub OAuth App's callback URL to
+   `<ecs_service_url>auth/github/callback`, then set `github_callback_url`
+   and `allowed_origin` in `terraform.tfvars` to match, and `terraform apply`
    again to push those env vars to the running service.
 
-6. **Wire up GitHub Actions** - in the repo's Settings -> Secrets and
+4. **Wire up GitHub Actions** - in the repo's Settings -> Secrets and
    variables -> Actions -> Variables, add:
    - `AWS_REGION` - the region you deployed into
    - `ECR_REPOSITORY` - `oda-web-studio` (or your `app_name`)
-   - `APP_RUNNER_SERVICE_ARN` - the `apprunner_service_arn` output
+   - `ECS_SERVICE` / `ECS_CLUSTER` - from the `ecs_service_arn` output
    - `AWS_DEPLOY_ROLE_ARN` - the `github_actions_deploy_role_arn` output
 
    From then on, a push to `main` (or manual dispatch) builds, pushes to
-   ECR, and triggers an App Runner deployment - see
+   ECR, and redeploys the ECS Express service - see
    [`.github/workflows/deploy.yml`](../../.github/workflows/deploy.yml).
 
 ## Variables
@@ -88,11 +87,12 @@ See [`variables.tf`](variables.tf) for the full list and defaults. At minimum
 create a `terraform.tfvars` with:
 
 ```hcl
-aws_region = "eu-west-2"
+aws_region = "us-east-1"
 ```
 
-## Custom domain (optional)
+## Custom domain
 
-Set `custom_domain` and re-apply; `custom_domain_dns_records` in the output
-gives the CNAME records to create for App Runner's certificate validation
-and traffic routing (Route 53 or wherever the domain's DNS is hosted).
+Not wired up yet - ECS Express Mode custom domains go through the ALB's
+listener plus an ACM certificate rather than the App Runner-style
+association this scaffold used to have. See AWS's migration guide
+(link above) for the steps if this is needed later.
