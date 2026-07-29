@@ -10,6 +10,7 @@
   --panel: #f7f5f9;
   --danger: #b3261e;
   --ok: #1e7b34;
+  --ok-fg: #ffffff;
   --help: #96790a;
 }
 
@@ -24,6 +25,7 @@
     --panel: #201f26;
     --danger: #ff6b6b;
     --ok: #4fd672;
+    --ok-fg: #16151a;
     --help: #e0c04a;
   }
 }
@@ -142,6 +144,7 @@ h1 {
   --accent-fg: #ffffff;
   --danger: #b3261e;
   --ok: #1e7b34;
+  --ok-fg: #ffffff;
   --help: #96790a;
   background: var(--bg);
   color: var(--fg);
@@ -271,6 +274,19 @@ button.save {
 }
 button.save:hover:not(:disabled) {
   background: color-mix(in srgb, var(--ok) 28%, var(--bg));
+}
+
+/* The vivid counterpart to .save above - used for "this is the next thing
+   to click" (nothing done yet in that step), while .save's pale tint marks
+   "already done, still available if you want to redo it" - e.g. Add All
+   before vs. after a resource already has operations selected. */
+button.save-solid {
+  background: var(--ok);
+  border-color: var(--ok);
+  color: var(--ok-fg);
+}
+button.save-solid:hover:not(:disabled) {
+  filter: brightness(1.08);
 }
 
 button.help {
