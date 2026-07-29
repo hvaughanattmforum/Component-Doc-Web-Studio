@@ -56,6 +56,15 @@ export default function ResourcePicker({ apiId, apiVersion, apiCatalog, existing
     onAdd(resourceName, verbs);
   };
 
+  // One-click shortcut for "check every operation, then Add" - also updates
+  // the checkboxes themselves (not just the saved result) so they stay in
+  // sync if the user wants to then uncheck one and re-save.
+  const addAll = (resourceName, operations) => {
+    const all = new Set(operations);
+    setChecked((prev) => ({ ...prev, [resourceName]: all }));
+    onAdd(resourceName, [...all]);
+  };
+
   if (!apiId) return null;
 
   return (
@@ -76,8 +85,11 @@ export default function ResourcePicker({ apiId, apiVersion, apiCatalog, existing
             const hasSelection = !!checked[r.name]?.size;
             return (
               <div className="card" key={r.name}>
-                <div className="row" style={{ alignItems: 'center' }}>
+                <div className="row" style={{ alignItems: 'center', gap: 8 }}>
                   <strong style={{ flex: 1 }}>{r.name}{already ? ' (already added)' : ''}</strong>
+                  <button type="button" className={hasSelection ? 'save' : 'save-solid'} onClick={() => addAll(r.name, r.operations)}>
+                    Add All
+                  </button>
                   <button type="button" className="save" onClick={() => save(r.name)} disabled={!hasSelection}>
                     {already ? 'Edit operations' : '+ Add'}
                   </button>

@@ -86,9 +86,9 @@ export default function ReviewStep({ state, original, originalLocation, mode }) 
   // save flips this back to false until Save to Worktree runs again.
   const hasSavedCurrentContent = lastSavedYamlText !== null && yamlText === lastSavedYamlText;
 
-  // Push only looks "ready" (bold/primary) once a save of the current
-  // content has actually happened - and stays disabled outright until both
-  // that save and the branch-name confirmation have happened.
+  // Push only looks "ready" (vivid save-solid green) once a save of the
+  // current content has actually happened - and stays disabled outright
+  // until both that save and the branch-name confirmation have happened.
   const canPush = hasSavedCurrentContent && confirmed;
 
   // Separate from Save above: Save only ever writes locally (to the active
@@ -170,8 +170,8 @@ export default function ReviewStep({ state, original, originalLocation, mode }) 
       )}
 
       <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
-        <button className={hasValidatedCurrentContent ? '' : 'save'} onClick={runValidate} disabled={busy}>Validate</button>
-        <button className="save" onClick={() => runSave(false)} disabled={busy || hasSavedCurrentContent || !hasValidatedCurrentContent}>Save to Worktree</button>
+        <button className={hasValidatedCurrentContent ? 'save' : 'save-solid'} onClick={runValidate} disabled={busy}>Validate</button>
+        <button className={hasSavedCurrentContent ? 'save' : 'save-solid'} onClick={() => runSave(false)} disabled={busy || hasSavedCurrentContent || !hasValidatedCurrentContent}>Save to Worktree</button>
       </div>
 
       <pre className="yaml-preview">{yamlText}</pre>
@@ -188,7 +188,7 @@ export default function ReviewStep({ state, original, originalLocation, mode }) 
           />
           <button
             type="button"
-            className={hasSavedCurrentContent ? 'save' : ''}
+            className={confirmed ? 'save' : 'save-solid'}
             onClick={confirmBranchName}
             disabled={renaming || !branchName.trim() || !hasSavedCurrentContent}
           >
@@ -203,7 +203,7 @@ export default function ReviewStep({ state, original, originalLocation, mode }) 
       </div>
 
       <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
-        <button className={canPush ? 'primary' : ''} onClick={runPush} disabled={pushing || !canPush}>
+        <button className={canPush ? 'save-solid' : 'save'} onClick={runPush} disabled={pushing || !canPush}>
           {pushing ? 'Pushing…' : 'Push to origin Repo'}
         </button>
       </div>
