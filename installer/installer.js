@@ -13,7 +13,7 @@ const { spawnSync } = require('child_process');
 const payloadDir = path.join(__dirname, 'payload');
 const tempDir = path.join(os.tmpdir(), 'ComponentDocSpecStudio-install');
 
-console.log('ODA Component Doc Specification Studio - Setup');
+console.log('ODA Component Doc Specification Web Studio - Setup');
 console.log('Extracting installer files...');
 
 fs.rmSync(tempDir, { recursive: true, force: true });

@@ -129,7 +129,7 @@ export default function App() {
   return (
     <div className="app">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-        <h1>ODA Component Doc Specification Studio</h1>
+        <h1>ODA Component Doc Specification Web Studio</h1>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           {authUser && (
             <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem' }}>

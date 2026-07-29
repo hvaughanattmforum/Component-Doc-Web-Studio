@@ -1,5 +1,5 @@
 $ErrorActionPreference = 'SilentlyContinue'
-$AppName = 'ODA Component Doc Specification Studio'
+$AppName = 'ODA Component Doc Specification Web Studio'
 $InstallDir = Join-Path $env:LOCALAPPDATA 'Programs\ComponentDocSpecStudio'
 
 Write-Host "Uninstalling $AppName ..."

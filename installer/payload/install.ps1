@@ -1,5 +1,5 @@
 $ErrorActionPreference = 'Stop'
-$AppName = 'ODA Component Doc Specification Studio'
+$AppName = 'ODA Component Doc Specification Web Studio'
 $InstallDir = Join-Path $env:LOCALAPPDATA 'Programs\ComponentDocSpecStudio'
 $SourceDir = $PSScriptRoot
 
