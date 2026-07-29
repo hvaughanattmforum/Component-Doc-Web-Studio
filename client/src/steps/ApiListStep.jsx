@@ -48,12 +48,14 @@ const LOCKED_MESSAGE = 'If this needs changing, please delete and start again.';
 // shape release to release (e.g. TMF620 v5's "productCatalog" was called
 // "catalog" in v4), so resources picked for one version must never bleed
 // into another.
-function SpecVersionCard({ apiId, spec, onChange, onRemove, apiCatalog, removable }) {
+function SpecVersionCard({ apiId, spec, onChange, onChangeFields, onRemove, apiCatalog, removable }) {
   // Only known once the picker's "Load resources" has been used at least
   // once - null until then, so there's no way yet to tell whether every real
   // resource has been captured.
   const [specResources, setSpecResources] = useState(null);
   const [versionLockHint, setVersionLockHint] = useState(false);
+
+  const match = matchCatalogEntry(apiCatalog, (apiId || '').trim(), spec.version);
 
   const addResourceFromPicker = (name, verbs) => {
     const resources = spec.resources || [];
@@ -62,12 +64,22 @@ function SpecVersionCard({ apiId, spec, onChange, onRemove, apiCatalog, removabl
     const next = existingIdx >= 0
       ? resources.map((r, idx) => (idx === existingIdx ? { ...r, verbs: verbsText } : r))
       : [...resources, { name, verbs: verbsText }];
-    onChange('resources', next);
+    // matchCatalogEntry (see apiCatalogUtils.js) resolves a catalog entry
+    // even with an empty apiVersion - it just falls back to the highest
+    // version - so resources can get added before the Version field is ever
+    // filled in. Since the version field locks read-only the moment any
+    // resource exists (below), leaving it blank here would freeze it empty
+    // permanently and silently drop `version` from the saved YAML. Backfill
+    // it from whatever the picker actually resolved against, in one atomic
+    // update alongside the resources themselves (a separate onChange call
+    // for each would race against this component's own stale `spec` prop).
+    const patch = { resources: next };
+    if (!spec.version && match) patch.version = match.version;
+    onChangeFields(patch);
   };
 
   const allCaptured = !!specResources?.length
     && specResources.every((r) => (spec.resources || []).some((er) => er.name === r.name));
-  const match = matchCatalogEntry(apiCatalog, (apiId || '').trim(), spec.version);
   // Once a resource+operation selection has actually been saved against this
   // version, changing the version number would silently orphan it (the saved
   // resources stay tagged to a version number that no longer matches what's
@@ -130,6 +142,14 @@ export default function ApiListStep({ title, items, onChange, apiCatalog, requir
   const updateSpec = (i, specIdx, field, value) => {
     const specs = items[i].specifications.slice();
     specs[specIdx] = { ...specs[specIdx], [field]: value };
+    update(i, 'specifications', specs);
+  };
+  // Multi-field variant of updateSpec, for callers that need to change more
+  // than one field atomically (e.g. resources + a version backfill together)
+  // rather than as two separate state updates racing against each other.
+  const updateSpecFields = (i, specIdx, patch) => {
+    const specs = items[i].specifications.slice();
+    specs[specIdx] = { ...specs[specIdx], ...patch };
     update(i, 'specifications', specs);
   };
   const addSpec = (i) => update(i, 'specifications', [...items[i].specifications, { version: '', resources: [], raw: {} }]);
@@ -198,6 +218,7 @@ export default function ApiListStep({ title, items, onChange, apiCatalog, requir
                       apiId={item.id}
                       spec={spec}
                       onChange={(field, value) => updateSpec(i, specIdx, field, value)}
+                      onChangeFields={(patch) => updateSpecFields(i, specIdx, patch)}
                       onRemove={() => removeSpec(i, specIdx)}
                       apiCatalog={apiCatalog}
                       removable={item.specifications.length > 1}
