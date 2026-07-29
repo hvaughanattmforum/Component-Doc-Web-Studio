@@ -350,6 +350,17 @@ input.locked {
   align-items: start;
 }
 
+/* Compare Changes already shows the modified YAML as one side of its own
+   diff - the persistent Live YAML pane would just repeat it, so that step
+   drops the third column entirely and lets .main take the freed-up width
+   instead of leaving it empty. */
+.shell.shell-no-yaml {
+  grid-template-columns: 220px minmax(0, 1fr);
+}
+.shell-no-yaml .main {
+  border-right: none;
+}
+
 .rail {
   background: var(--panel);
   border-right: 1px solid var(--border);
@@ -505,6 +516,119 @@ pre.yaml-preview {
 .history-table input[type="text"] {
   font-size: 0.85rem;
   padding: 5px 7px;
+}
+
+.diff-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.diff-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diff-badge {
+  font-family: ui-monospace, monospace;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.diff-badge.del {
+  background: color-mix(in srgb, var(--danger) 18%, var(--bg));
+  color: var(--danger);
+}
+.diff-badge.add {
+  background: color-mix(in srgb, var(--ok) 18%, var(--bg));
+  color: var(--ok);
+}
+.diff-layout-toggle {
+  display: flex;
+  gap: 6px;
+}
+.diff-layout-toggle button {
+  padding: 6px 10px;
+  font-size: 0.78rem;
+}
+
+.diff-panes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: auto;
+  max-height: 560px;
+  background: var(--border);
+}
+.diff-pane-header {
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+  padding: 8px 10px;
+  z-index: 1;
+}
+
+.diff-inline {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: auto;
+  max-height: 560px;
+}
+
+.diff-line {
+  display: flex;
+  gap: 8px;
+  padding: 1px 10px;
+  font-family: ui-monospace, monospace;
+  font-size: 0.78rem;
+  white-space: pre-wrap;
+  word-break: break-all;
+  background: var(--bg);
+}
+.diff-linenum {
+  flex-shrink: 0;
+  width: 32px;
+  text-align: right;
+  color: var(--muted);
+  user-select: none;
+}
+.diff-marker {
+  flex-shrink: 0;
+  width: 10px;
+  text-align: center;
+  font-weight: 700;
+  color: var(--muted);
+}
+.diff-text {
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.diff-line-add {
+  background: color-mix(in srgb, var(--ok) 16%, var(--bg));
+}
+.diff-line-add .diff-marker {
+  color: var(--ok);
+}
+.diff-line-del {
+  background: color-mix(in srgb, var(--danger) 16%, var(--bg));
+}
+.diff-line-del .diff-marker {
+  color: var(--danger);
+}
+.diff-line-empty {
+  background: color-mix(in srgb, var(--muted) 6%, var(--bg));
 }
 
 .help-anchor {

@@ -7,6 +7,7 @@ import MetadataStep from './steps/MetadataStep.jsx';
 import LinksStep from './steps/LinksStep.jsx';
 import ApiListStep from './steps/ApiListStep.jsx';
 import EventsStep from './steps/EventsStep.jsx';
+import DiffStep from './steps/DiffStep.jsx';
 import ReviewStep from './steps/ReviewStep.jsx';
 import DocumentHistoryStep from './steps/DocumentHistoryStep.jsx';
 import DescriptionsStep from './steps/DescriptionsStep.jsx';
@@ -16,7 +17,7 @@ import HelpButton from './HelpButton.jsx';
 import BranchSwitcher from './BranchSwitcher.jsx';
 import { stateFromComponent } from './parseComponent.js';
 
-const STEPS = ['Metadata', 'Links', 'Descriptions', 'Exposed APIs', 'Dependent APIs', 'Events', 'Review & Save', 'Document History', 'SID Owner'];
+const STEPS = ['Metadata', 'Links', 'Descriptions', 'Exposed APIs', 'Dependent APIs', 'Events', 'Compare Changes', 'Review & Save', 'Document History', 'SID Owner'];
 
 // Which file each step edits: most steps build up `state` and only write it
 // to the component's main YAML when Review & Save is used, while Links,
@@ -26,8 +27,8 @@ const STEPS = ['Metadata', 'Links', 'Descriptions', 'Exposed APIs', 'Dependent A
 // YAML/Save flow. Grouped here purely for the step pills' display below -
 // doesn't affect step order or navigation.
 const STEP_GROUPS = [
-  { label: 'Component YAML', indices: [0, 3, 4, 5, 6] },
-  { label: 'Component Spec Document', indices: [1, 2, 7] },
+  { label: 'Component YAML', indices: [0, 3, 4, 5, 6, 7] },
+  { label: 'Component Spec Document', indices: [1, 2, 8] },
 ];
 
 // Unlike the two groups above, this step edits a repo-root-level file under
@@ -35,7 +36,7 @@ const STEP_GROUPS = [
 // scoped to the component currently open - kept as its own group, rendered
 // on its own row below Component Spec Document, so it reads as a separate
 // concern rather than a pill squeezed into either existing box.
-const COMMON_PATTERNS_GROUP = { label: 'Common architectural patterns', indices: [8] };
+const COMMON_PATTERNS_GROUP = { label: 'Common architectural patterns', indices: [9] };
 
 function blankState() {
   return {
@@ -129,7 +130,7 @@ export default function App() {
   return (
     <div className="app">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-        <h1>ODA Component Doc Specification Studio</h1>
+        <h1>ODA Component Doc Specification Web Studio</h1>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           {authUser && (
             <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem' }}>
@@ -191,7 +192,7 @@ export default function App() {
       )}
 
       {view === 'wizard' && mode !== null && (
-        <div className="shell">
+        <div className={`shell ${step === 6 ? 'shell-no-yaml' : ''}`}>
           <div className="rail">
             <button className="rail-item rail-start-over" onClick={backToStart}>&larr; Start over</button>
             {STEP_GROUPS.map((group, groupIdx) => (
@@ -277,12 +278,15 @@ export default function App() {
               <EventsStep state={state} setState={setState} apiCatalog={apiCatalog} />
             )}
             {step === 6 && (
-              <ReviewStep state={state} original={original} originalLocation={originalLocation} mode={mode} />
+              <DiffStep state={state} original={original} />
             )}
             {step === 7 && (
+              <ReviewStep state={state} original={original} originalLocation={originalLocation} mode={mode} />
+            )}
+            {step === 8 && (
               <DocumentHistoryStep dirName={originalLocation?.dirName} />
             )}
-            {step === 8 && <CommonComponentSidOwnerStep />}
+            {step === 9 && <CommonComponentSidOwnerStep />}
 
             <div className="nav-buttons">
               <button onClick={() => setStep((s) => Math.max(0, s - 1))} disabled={step === 0}>Back</button>
@@ -290,10 +294,12 @@ export default function App() {
             </div>
           </div>
 
-          <div className="yaml-pane">
-            <div className="yaml-head"><b>Live YAML</b><span>read-only, updates as you edit</span></div>
-            <pre className="yaml-live">{previewYamlText}</pre>
-          </div>
+          {step !== 6 && (
+            <div className="yaml-pane">
+              <div className="yaml-head"><b>Live YAML</b><span>read-only, updates as you edit</span></div>
+              <pre className="yaml-live">{previewYamlText}</pre>
+            </div>
+          )}
         </div>
       )}
       </>

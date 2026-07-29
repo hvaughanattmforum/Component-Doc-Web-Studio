@@ -322,7 +322,7 @@ npx pkg . --targets node22-win-x64 --output ../dist/ComponentDocSpecStudio-Setup
           The setup exe embeds the app + install/uninstall PowerShell scripts, unpacks them to a temp
           folder, and runs the installer. <code>frameworks.zip</code> is optional - only include it if
           <code>dist/frameworks/</code> has catalog JSON to bundle. To uninstall: Settings → Apps →
-          "ODA Component Doc Specification Studio" → Uninstall (or run <code>uninstall.ps1</code> from the
+          "ODA Component Doc Specification Web Studio" → Uninstall (or run <code>uninstall.ps1</code> from the
           install folder directly).
         </p>
       </div>
