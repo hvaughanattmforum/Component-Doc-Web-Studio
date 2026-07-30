@@ -92,7 +92,25 @@ aws_region = "us-east-1"
 
 ## Custom domain
 
-Not wired up yet - ECS Express Mode custom domains go through the ALB's
-listener plus an ACM certificate rather than the App Runner-style
-association this scaffold used to have. See AWS's migration guide
-(link above) for the steps if this is needed later.
+Set up (currently `componentspecstudio.crowdframe.global`), but **not through
+Terraform** - the ALB Express Mode provisions internally isn't a resource
+this config owns, so the ACM certificate, its DNS validation, the listener
+certificate attachment, and the host-header listener rule were all created
+directly via the AWS CLI/console. `custom_domain` in `variables.tf` is
+informational only.
+
+**Important gotcha**: Express Mode blue/green-swaps between 2 target groups
+on every deployment. Its own auto-managed rule (for the default
+`*.ecs.<region>.on.aws` hostname) always tracks the correct one, but a
+manually-added rule like the custom domain's doesn't - it'll silently start
+routing to a draining/dead target group after the next deploy unless
+re-pointed. `.github/workflows/deploy.yml` automates this (a step after
+`ecs update-service` that reads the auto-managed rule's weights and mirrors
+them onto the custom domain rule), gated on the `ALB_LISTENER_ARN` /
+`CUSTOM_DOMAIN_LISTENER_RULE_ARN` GitHub Actions variables and the
+`custom_domain_listener_rule_arn` Terraform variable (which only exists to
+grant the deploy role `elasticloadbalancing:ModifyRule` on that one rule).
+
+If deploying manually (not via CI) after setting up a custom domain, remember
+to re-run that same re-point logic yourself, or the custom domain will 503
+after the next deploy.

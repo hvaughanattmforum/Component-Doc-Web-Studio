@@ -14,6 +14,11 @@ import addFormats from 'ajv-formats';
 const execFileAsync = promisify(execFile);
 
 const app = express();
+// Behind the ECS Express Mode ALB, which terminates TLS and forwards plain
+// HTTP - without this, Express sees every request as insecure, and the
+// session cookie's `secure: true` below silently never gets set (no
+// Set-Cookie header at all), breaking the OAuth state check on every login.
+app.set('trust proxy', 1);
 // ALLOWED_ORIGIN locks CORS down to the deployed origin in hosted environments;
 // left unset, cors() falls back to reflecting any origin (fine for local dev).
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN;
@@ -198,12 +203,26 @@ async function ensureWorkspace(req, res, next) {
   }
 
   const dir = path.join(SESSIONS_ROOT, req.sessionID);
+  const accessToken = req.session.user.accessToken;
   let setupPromise = workspaceSetupPromises.get(req.sessionID);
   if (!setupPromise) {
     setupPromise = (async () => {
       fs.mkdirSync(SESSIONS_ROOT, { recursive: true });
       if (!fs.existsSync(dir)) {
-        await execFileAsync('git', ['clone', '--branch', SPEC_REPO_BRANCH, SPEC_REPO_URL, dir]);
+        // SPEC_REPO_URL (tmforum-rand/TMForum-ODA-Component-Specification)
+        // is a private repo, so this needs the signed-in user's OAuth token -
+        // same credential-helper approach as commitAndPush below, for the
+        // same reason (never embed the token in argv, which execFileAsync
+        // would otherwise include verbatim in a thrown Error).
+        await execFileAsync(
+          'git',
+          [
+            '-c', 'credential.helper=',
+            '-c', 'credential.helper=!f() { echo username=x-access-token; echo "password=$ODA_STUDIO_CLONE_TOKEN"; }; f',
+            'clone', '--branch', SPEC_REPO_BRANCH, SPEC_REPO_URL, dir,
+          ],
+          { env: { ...process.env, ODA_STUDIO_CLONE_TOKEN: accessToken } },
+        );
       }
       return dir;
     })().finally(() => workspaceSetupPromises.delete(req.sessionID));
@@ -215,7 +234,7 @@ async function ensureWorkspace(req, res, next) {
     req.session.workspaceDir = req.workspaceDir;
     next();
   } catch (err) {
-    res.status(500).json({ ok: false, error: `Could not prepare your workspace: ${err.message}` });
+    res.status(500).json({ ok: false, error: `Could not prepare your workspace: ${redactToken(err.message, accessToken)}` });
   }
 }
 

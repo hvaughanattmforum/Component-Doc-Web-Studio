@@ -25,8 +25,11 @@ RUN npm --prefix client run build
 FROM node:22-slim
 # python3 only (no pip) - the vendored openpyxl copied in below is self-contained.
 # git is needed by docker-entrypoint.sh to clone the spec repo on first start.
+# ca-certificates is needed for git to verify github.com's TLS cert over
+# HTTPS - without it, every clone fails with "server certificate
+# verification failed: CAfile: none CRLfile: none".
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends python3 git \
+  && apt-get install -y --no-install-recommends python3 git ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 

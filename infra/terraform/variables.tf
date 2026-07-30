@@ -46,7 +46,19 @@ variable "allowed_origin" {
 }
 
 variable "custom_domain" {
-  description = "Not wired up yet for ECS Express Mode (custom domains there go through the ALB's listener + an ACM cert - see AWS's App Runner -> ECS Express Mode migration guide). Reserved for when that's added."
+  description = "Informational only - not consumed by any resource here. The actual custom domain wiring (ACM cert, ALB listener certificate, host-header listener rule) was done out-of-band via the AWS CLI/console, not Terraform, because it was set up against an ALB that ECS Express Mode provisions internally rather than as a resource this config owns. See custom_domain_listener_rule_arn below for the piece Terraform *does* need to know about."
+  type        = string
+  default     = ""
+}
+
+variable "custom_domain_listener_rule_arn" {
+  description = "ARN of the ALB listener rule that routes custom_domain's host-header to whichever of Express Mode's 2 target groups is currently active. Only needed so the GitHub Actions deploy role can be granted elb:ModifyRule on it - see .github/workflows/deploy.yml, which re-points this rule after every deploy (Express Mode blue/green-swaps between its 2 target groups on every deployment, silently breaking this rule if it isn't re-pointed). Leave blank if no custom domain is set up."
+  type        = string
+  default     = ""
+}
+
+variable "alb_listener_arn" {
+  description = "ARN of the ECS Express Mode ALB's HTTPS listener (find via `aws elbv2 describe-load-balancers` / `describe-listeners` - the ALB is named ecs-express-gateway-alb-*). Needed by the GitHub Actions deploy role to look up which target group is currently active. Leave blank if no custom domain is set up."
   type        = string
   default     = ""
 }
