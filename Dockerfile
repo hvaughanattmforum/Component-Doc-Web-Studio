@@ -39,6 +39,14 @@ COPY server/index.js server/index.js
 
 COPY --from=build /app/scripts ./scripts
 COPY --from=build /app/client/dist ./client/dist
+# Pre-generated eTOM/SID/Functional Framework catalog JSON (see
+# resolveDefaultFrameworksDir in server/index.js - this path, ./frameworks
+# relative to WORKDIR, is one of its default search candidates, so no
+# FRAMEWORKS_DIR env var is needed). Only the converted JSON is committed to
+# the repo, never the source .xlsx spreadsheets (large, license-bearing) -
+# see tools/copy-frameworks-catalogs.js for the same convention used by the
+# desktop build.
+COPY frameworks ./frameworks
 
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
