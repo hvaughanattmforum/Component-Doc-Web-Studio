@@ -25,8 +25,11 @@ RUN npm --prefix client run build
 FROM node:22-slim
 # python3 only (no pip) - the vendored openpyxl copied in below is self-contained.
 # git is needed by docker-entrypoint.sh to clone the spec repo on first start.
+# ca-certificates is needed for git to verify github.com's TLS cert over
+# HTTPS - without it, every clone fails with "server certificate
+# verification failed: CAfile: none CRLfile: none".
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends python3 git \
+  && apt-get install -y --no-install-recommends python3 git ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 
@@ -36,6 +39,14 @@ COPY server/index.js server/index.js
 
 COPY --from=build /app/scripts ./scripts
 COPY --from=build /app/client/dist ./client/dist
+# Pre-generated eTOM/SID/Functional Framework catalog JSON (see
+# resolveDefaultFrameworksDir in server/index.js - this path, ./frameworks
+# relative to WORKDIR, is one of its default search candidates, so no
+# FRAMEWORKS_DIR env var is needed). Only the converted JSON is committed to
+# the repo, never the source .xlsx spreadsheets (large, license-bearing) -
+# see tools/copy-frameworks-catalogs.js for the same convention used by the
+# desktop build.
+COPY frameworks ./frameworks
 
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh

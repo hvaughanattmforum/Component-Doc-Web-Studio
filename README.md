@@ -9,6 +9,43 @@ the repo.
 The app is an Express server (`server/`) plus a React/Vite client
 (`client/`), served together as one process.
 
+## Signing in (for users of the hosted app)
+
+Before you start, you need a GitHub account that is a member of the
+`tmforum-rand` organization, with access to the
+[`TMForum-ODA-Component-Specification`](https://github.com/tmforum-rand/TMForum-ODA-Component-Specification)
+repository. If you're not sure whether you have this, ask whoever manages
+the TMForum GitHub organization.
+
+1. **Open the app** at <https://componentspecstudio.crowdframe.global>.
+2. **Click "Sign in with GitHub"**, near the top right of the page.
+3. **Log in to GitHub** if your browser isn't already signed in - same
+   username/password (and two-factor step, if you have it) you'd use at
+   github.com directly. You're never asked to type your GitHub password into
+   this app itself, only into GitHub's own page.
+4. **Review and approve access.** GitHub shows a page titled something like
+   "Authorize [app name]", listing exactly what the app is asking permission
+   to do on your behalf - typically access to your repositories (to read
+   specification files and open pull requests for you) and your basic
+   profile info (name and avatar). Clicking the green **Authorize** button
+   allows the app to act using *your own* GitHub account and permissions -
+   not a shared account. Every change the app makes in GitHub happens under
+   your name, exactly as if you'd made it by hand.
+5. **You're in.** You'll be redirected back to the app, now showing your
+   name and GitHub avatar in the top right, with a **Sign out** button next
+   to it.
+
+The first time you load or create a component, the app sets up your own
+private workspace behind the scenes - this can take a few seconds. Any
+changes you save are proposed as a **pull request** under your GitHub
+username, not committed directly - someone reviews it before it's merged,
+same as a normal GitHub workflow.
+
+If you see "Repository not found" or a similar error right after signing in,
+that usually means either your GitHub account doesn't yet have access to the
+specification repository, or the app itself is still waiting on IT/help desk
+approval at the organization level (unrelated to your own sign-in).
+
 ## Local development
 
 ```
@@ -59,10 +96,12 @@ session branch and open a PR on their behalf.
 
 ## Hosted deployment
 
-For AWS App Runner (recommended - lowest ops overhead for this app's
-single-instance constraint), see [`infra/terraform/`](infra/terraform/README.md),
-which provisions ECR, the App Runner service pinned to one instance, the
-Secrets Manager entries, and a GitHub Actions OIDC deploy role.
+For Amazon ECS Express Mode (recommended - lowest ops overhead for this
+app's single-instance constraint; see [`infra/terraform/README.md`](infra/terraform/README.md)
+for why this replaced an earlier AWS App Runner scaffold), see
+[`infra/terraform/`](infra/terraform/README.md), which provisions ECR, the
+ECS Express service pinned to one task, the Secrets Manager entries, and a
+GitHub Actions OIDC deploy role.
 
 To build and run the Docker image directly (Node + Python3 + the built
 client baked in - see [`Dockerfile`](Dockerfile)):

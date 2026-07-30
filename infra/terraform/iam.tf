@@ -71,6 +71,26 @@ data "aws_iam_policy_document" "github_actions_permissions" {
     actions   = ["iam:PassRole"]
     resources = [module.express_service.execution_iam_role_arn, module.express_service.task_iam_role_arn]
   }
+
+  # Lets CI re-point the custom domain's listener rule at whichever target
+  # group Express Mode just made active - see custom_domain_listener_rule_arn
+  # in variables.tf for why this exists.
+  dynamic "statement" {
+    for_each = var.custom_domain_listener_rule_arn != "" ? [1] : []
+    content {
+      sid       = "DescribeAlbForCustomDomainRepoint"
+      actions   = ["elasticloadbalancing:DescribeRules", "elasticloadbalancing:DescribeTargetHealth"]
+      resources = ["*"] # Describe* actions require resource "*" in ELB's IAM model.
+    }
+  }
+  dynamic "statement" {
+    for_each = var.custom_domain_listener_rule_arn != "" ? [1] : []
+    content {
+      sid       = "ModifyCustomDomainRule"
+      actions   = ["elasticloadbalancing:ModifyRule"]
+      resources = [var.custom_domain_listener_rule_arn]
+    }
+  }
 }
 
 resource "aws_iam_role_policy" "github_actions_permissions" {
