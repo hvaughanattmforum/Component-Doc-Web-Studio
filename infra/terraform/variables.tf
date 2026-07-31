@@ -34,7 +34,7 @@ variable "github_repo_id" {
 variable "spec_repo_url" {
   description = "Git URL of the ODA spec repo each signed-in user gets their own workspace clone of"
   type        = string
-  default     = "https://github.com/tmforum-rand/TMForum-ODA-Component-Specification.git"
+  default     = "https://github.com/hvaughanattmforum/WebSpecDemoData.git"
 }
 
 variable "spec_repo_branch" {
