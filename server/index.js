@@ -153,13 +153,33 @@ const savedConfig = readConfigFile();
 // SPEC_REPO_URL isn't configured (see ensureWorkspace below) - i.e. the
 // Stage 1/2 single-shared-checkout behavior, kept for simple/local
 // deployments that don't need per-user workspaces. Precedence: REPO_ROOT env
-// var > saved config (legacy Setup Instructions tab) > the v1.1.0 checkout
-// the original author had attached.
+// var > saved config (legacy Setup Instructions tab) > a sibling checkout
+// next to this app, if one happens to be there > nothing.
+//
+// Deliberately probes for a relative sibling rather than hardcoding an
+// absolute path. This used to fall back to one specific machine's
+// `C:\Users\...\TMForum-ODA-Component-Specification-v1.1.0` checkout, which
+// meant the hosted Linux container reported a Windows path that could never
+// exist: /api/health answered `ok: true` while claiming a nonexistent root
+// with all three *Exists flags false, and the client showed every
+// not-yet-signed-in visitor a spurious "specifications folder not found"
+// warning. Resolving to null instead lets callers distinguish "no shared
+// checkout in this deployment" from "checkout configured but broken".
+function resolveDefaultRepoRoot() {
+  const scriptDir = path.dirname(process.argv[1] || '.');
+  return [
+    path.join(scriptDir, '..', '..', 'WebSpecDemoData'), // dev: repo checked out beside this app
+    path.join(scriptDir, '..', 'WebSpecDemoData'),
+  ].find((p) => fs.existsSync(path.join(p, 'specifications'))) || null;
+}
+
 const REPO_ROOT = process.env.REPO_ROOT
   || savedConfig.repoRoot
-  || 'C:\\Users\\HugoVaughan\\ClaudeCode\\TMForum-ODA-Component-Specification-v1.1.0';
+  || resolveDefaultRepoRoot();
 
-const REPO_ROOT_SOURCE = process.env.REPO_ROOT ? 'env' : (savedConfig.repoRoot ? 'config' : 'default');
+const REPO_ROOT_SOURCE = process.env.REPO_ROOT
+  ? 'env'
+  : savedConfig.repoRoot ? 'config' : (REPO_ROOT ? 'default' : 'unset');
 
 // Every route resolves its own repo root through this instead of a module
 // constant, so each signed-in user's requests operate on their own workspace
@@ -277,7 +297,11 @@ function resolveDefaultFrameworksDir() {
     path.join(scriptDir, '..', 'frameworks'), // dev: index.js run from server/
     path.join(scriptDir, '..', '..', 'frameworks'), // dev: bundle.cjs run from server/dist/
   ].filter(Boolean);
-  return candidates.find((p) => fs.existsSync(p)) || path.join(path.dirname(REPO_ROOT), 'frameworks');
+  // REPO_ROOT is null when no shared checkout is configured (the per-user
+  // workspace deployments), so the sibling-of-REPO_ROOT last resort has to be
+  // conditional - path.dirname(null) would throw at startup.
+  return candidates.find((p) => fs.existsSync(p))
+    || (REPO_ROOT ? path.join(path.dirname(REPO_ROOT), 'frameworks') : path.join(scriptDir, 'frameworks'));
 }
 
 const REFERENCE_DATA_DIR = process.env.FRAMEWORKS_DIR
@@ -462,10 +486,20 @@ app.get('/api/health', (req, res) => {
     ok: true,
     repoRoot: root,
     repoRootSource: req.session.activeRoot ? 'worktree' : req.workspaceDir ? 'session-workspace' : REPO_ROOT_SOURCE,
-    specificationsDirExists: fs.existsSync(specificationsDir(root)),
-    schemaExists: fs.existsSync(schemaPath(root)),
-    apiIndexExists: fs.existsSync(apiIndexPath(root)),
-    git: getGitInfo(root),
+    // Which repo this deployment actually edits. Without this, health said
+    // nothing at all about the per-user-workspace configuration that hosted
+    // deployments run on - the only repo it named was the legacy shared
+    // checkout, which such deployments don't have.
+    specRepoUrl: SPEC_REPO_URL || null,
+    specRepoBranch: SPEC_REPO_URL ? SPEC_REPO_BRANCH : null,
+    // null, not false, when there's no root to look in: false means "checked
+    // and missing", which is a real problem worth warning about, whereas null
+    // means "not applicable to this deployment". Callers key off the
+    // difference - see the specifications warning in the client's App.jsx.
+    specificationsDirExists: root ? fs.existsSync(specificationsDir(root)) : null,
+    schemaExists: root ? fs.existsSync(schemaPath(root)) : null,
+    apiIndexExists: root ? fs.existsSync(apiIndexPath(root)) : null,
+    git: root ? getGitInfo(root) : { remoteUrl: null, remote: null, branch: null },
     frameworksDir: REFERENCE_DATA_DIR,
     frameworksDirSource: FRAMEWORKS_DIR_SOURCE,
     frameworksDirExists: fs.existsSync(REFERENCE_DATA_DIR),
@@ -1769,6 +1803,16 @@ if (PUBLIC_DIR) {
 const PORT = process.env.PORT || 4310;
 app.listen(PORT, () => {
   console.log(`component-doc-specification-studio server listening on http://localhost:${PORT}`);
-  console.log(`REPO_ROOT=${REPO_ROOT} (source: ${REPO_ROOT_SOURCE})`);
+  // The two modes report differently because they mean different things: a
+  // per-user-workspace deployment has no shared REPO_ROOT to print. Neither
+  // being set used to be silently masked by a hardcoded absolute default, so
+  // it's now an explicit warning rather than a confusing path in the log.
+  if (SPEC_REPO_URL) {
+    console.log(`Per-user workspaces cloned from ${SPEC_REPO_URL} (branch: ${SPEC_REPO_BRANCH})`);
+  } else if (REPO_ROOT) {
+    console.log(`REPO_ROOT=${REPO_ROOT} (source: ${REPO_ROOT_SOURCE})`);
+  } else {
+    console.warn('Neither SPEC_REPO_URL nor REPO_ROOT is set - no specification repo is configured, so component routes will fail. Set one of them; see README.md "Configuration (environment variables)".');
+  }
   console.log(PUBLIC_DIR ? `Serving built client from ${PUBLIC_DIR}` : 'No built client found - API only (run the Vite dev server separately).');
 });

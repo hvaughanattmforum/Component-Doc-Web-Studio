@@ -162,7 +162,10 @@ export default function App() {
       )}
       <p className="subtitle">
         Create or edit a TMFCxxx component specification for the ODA Component Specification repository.
-        {repoInfo && !repoInfo.specificationsDirExists && (
+        {/* Strictly === false: health reports null when this deployment has no
+            shared checkout to look in (per-user workspaces), and warning about
+            a missing folder there would fire for every signed-out visitor. */}
+        {repoInfo && repoInfo.specificationsDirExists === false && (
           <span style={{ color: 'var(--danger)' }}> Warning: specifications folder not found at configured REPO_ROOT.</span>
         )}
       </p>

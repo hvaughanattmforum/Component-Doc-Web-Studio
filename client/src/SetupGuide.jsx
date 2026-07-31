@@ -191,17 +191,28 @@ export default function SetupGuide({ repoInfo, onFrameworksRegenerated }) {
         {!repoInfo && <div className="hint">Loading...</div>}
         {repoInfo && (
           <div className="card">
-            <div>Repo root: <code>{repoInfo.repoRoot}</code></div>
+            {repoInfo.specRepoUrl && (
+              <div>Specification repo: <code>{repoInfo.specRepoUrl}</code>{repoInfo.specRepoBranch ? ` @ ${repoInfo.specRepoBranch}` : ''}</div>
+            )}
+            <div>Repo root: <code>{repoInfo.repoRoot || 'none'}</code></div>
             <div className="hint" style={{ marginTop: 4 }}>
               {repoInfo.repoRootSource === 'worktree'
                 ? "This session's active worktree - use \"Work on a different branch\" above to switch, or the list below."
                 : repoInfo.repoRootSource === 'session-workspace'
                   ? "This session's own workspace clone."
-                  : 'Set via the REPO_ROOT environment variable (or the saved config file) - restart the server to change it.'}
+                  : repoInfo.repoRootSource === 'unset'
+                    ? 'No shared checkout on this deployment - each signed-in user gets their own workspace clone instead, created on first use.'
+                    : 'Set via the REPO_ROOT environment variable (or the saved config file) - restart the server to change it.'}
             </div>
-            <div><StatusDot ok={repoInfo.specificationsDirExists} /> specifications/ folder found</div>
-            <div><StatusDot ok={repoInfo.schemaExists} /> ci/component.schema.json found</div>
-            <div><StatusDot ok={repoInfo.apiIndexExists} /> apiIndex.json found</div>
+            {/* Only meaningful once there's a root to check - see the null vs
+                false distinction in the server's /api/health. */}
+            {repoInfo.repoRoot && (
+              <>
+                <div><StatusDot ok={repoInfo.specificationsDirExists} /> specifications/ folder found</div>
+                <div><StatusDot ok={repoInfo.schemaExists} /> ci/component.schema.json found</div>
+                <div><StatusDot ok={repoInfo.apiIndexExists} /> apiIndex.json found</div>
+              </>
+            )}
             {repoInfo.git?.remote && (
               <div>Git: {repoInfo.git.remoteUrl ? <a href={repoInfo.git.remoteUrl} target="_blank" rel="noreferrer">{repoInfo.git.remote}</a> : repoInfo.git.remote}{repoInfo.git.branch ? ` @ ${repoInfo.git.branch}` : ''}</div>
             )}
