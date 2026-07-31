@@ -2,13 +2,13 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "doc-spec-studio-server",
+      "name": "doc-web-studio-server",
       "runtimeExecutable": "node",
       "runtimeArgs": ["--watch", "server/index.js"],
       "port": 4310
     },
     {
-      "name": "doc-spec-studio-client",
+      "name": "doc-web-studio-client",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["--prefix", "client", "run", "dev"],
       "port": 4320
