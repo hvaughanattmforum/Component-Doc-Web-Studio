@@ -21,6 +21,16 @@ variable "github_repo" {
   default     = "Component-Doc-Web-Studio"
 }
 
+variable "github_owner_id" {
+  description = "GitHub's numeric, immutable ID for github_owner. Required since GitHub's 2026-04-23 'immutable subject claims' change (https://github.blog/changelog/2026-04-23-immutable-subject-claims-for-github-actions-oidc-tokens/) - repos created after 2026-07-15 (this one included) send an OIDC sub claim shaped like repo:OWNER@OWNER_ID/REPO@REPO_ID:... instead of the old plain repo:OWNER/REPO:..., so the trust policy has to match that shape or every CI deploy fails with 'Not authorized to perform sts:AssumeRoleWithWebIdentity'. Find via `curl -s https://api.github.com/users/<owner>` -> \"id\"."
+  type        = string
+}
+
+variable "github_repo_id" {
+  description = "GitHub's numeric, immutable ID for github_repo - see github_owner_id above for why this is needed. Find via `curl -s https://api.github.com/repos/<owner>/<repo>` -> \"id\"."
+  type        = string
+}
+
 variable "spec_repo_url" {
   description = "Git URL of the ODA spec repo each signed-in user gets their own workspace clone of"
   type        = string
