@@ -55,10 +55,14 @@ jobs:
           # deployment. Its own auto-managed rule (for the *.ecs.<region>.on.aws
           # hostname) always has the correct weights (100 = active, 0 =
           # draining) - mirror that instead of guessing which one is live.
-          ACTIVE_TG=$(aws elbv2 describe-rules --listener-arn "${{ vars.ALB_LISTENER_ARN }}" \
-            --query "Rules[?Conditions[?Field=='host-header' && contains(HostHeaderConfig.Values[0], 'on.aws')]].Actions[0].ForwardConfig.TargetGroups[?Weight==\`100\`].TargetGroupArn | [0][0]" \
-            --output text)
-          if [ -z "$ACTIVE_TG" ] || [ "$ACTIVE_TG" = "None" ]; then
+          # Using jq rather than --query/JMESPath here - a JMESPath
+          # projection chain (Rules[?...].Actions[0]...) does NOT flatten
+          # the way you'd expect (each filtered rule's .Actions becomes its
+          # own nested list), silently returning nothing instead of erroring,
+          # which is exactly what broke this step's first attempt.
+          ACTIVE_TG=$(aws elbv2 describe-rules --listener-arn "${{ vars.ALB_LISTENER_ARN }}" --output json | \
+            jq -r '.Rules[] | select((.Conditions[0].HostHeaderConfig.Values[0] // "") | contains("on.aws")) | .Actions[0].ForwardConfig.TargetGroups[] | select(.Weight==100) | .TargetGroupArn')
+          if [ -z "$ACTIVE_TG" ]; then
             echo "Could not determine the active target group - leaving the custom domain rule untouched." >&2
             exit 1
           fi

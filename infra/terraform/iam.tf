@@ -27,12 +27,15 @@ data "aws_iam_policy_document" "github_actions_assume" {
       values   = ["sts.amazonaws.com"]
     }
     # Restricts to this exact repo, any branch/tag/PR - tighten to
-    # "repo:${var.github_owner}/${var.github_repo}:ref:refs/heads/main" if
-    # only main should ever be able to deploy.
+    # "repo:${var.github_owner}@${var.github_owner_id}/${var.github_repo}@${var.github_repo_id}:ref:refs/heads/main"
+    # if only main should ever be able to deploy.
+    #
+    # Uses the immutable owner@id/repo@id shape, not the plain
+    # owner/repo one - see github_owner_id/github_repo_id in variables.tf.
     condition {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_owner}/${var.github_repo}:*"]
+      values   = ["repo:${var.github_owner}@${var.github_owner_id}/${var.github_repo}@${var.github_repo_id}:*"]
     }
   }
 }
