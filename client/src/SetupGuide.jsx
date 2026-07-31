@@ -232,7 +232,7 @@ export default function SetupGuide({ repoInfo, onFrameworksRegenerated }) {
           each has its own env var, saved setting, and default (see the two cards above) - and can live
           anywhere on disk, including under unrelated parent folders.
         </p>
-        <pre className="yaml-preview">{`TMForum-ODA-Component-Specification-v1.1.0/   <- REPO_ROOT (the spec repo checkout)
+        <pre className="yaml-preview">{`WebSpecDemoData/                               <- REPO_ROOT (the spec repo checkout)
 
 frameworks/                                    <- FRAMEWORKS_DIR: eTOM / SID / Functional Framework data ONLY
   GB921_Business_Process_Framework_Processes_Excel_v26.0.xlsx

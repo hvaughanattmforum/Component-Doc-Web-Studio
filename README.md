@@ -1,7 +1,7 @@
 # ODA Web Studio
 
 A web app for creating and editing TMForum ODA component (`TMFCxxx`) specifications
-in the [ODA Component Specification](https://github.com/tmforum-rand/TMForum-ODA-Component-Specification)
+in the [WebSpecDemoData](https://github.com/hvaughanattmforum/WebSpecDemoData)
 repository. Multiple signed-in GitHub users can use it at once; each user's
 edits land as their own pull request rather than being written straight to
 the repo.
@@ -11,11 +11,12 @@ The app is an Express server (`server/`) plus a React/Vite client
 
 ## Signing in (for users of the hosted app)
 
-Before you start, you need a GitHub account that is a member of the
-`tmforum-rand` organization, with access to the
-[`TMForum-ODA-Component-Specification`](https://github.com/tmforum-rand/TMForum-ODA-Component-Specification)
-repository. If you're not sure whether you have this, ask whoever manages
-the TMForum GitHub organization.
+Before you start, you need a GitHub account. The specification repository
+[`WebSpecDemoData`](https://github.com/hvaughanattmforum/WebSpecDemoData) is
+public, so anyone signed in can read it - but saving your work pushes a
+branch and opens a pull request, which needs you to be a **collaborator** on
+that repository. If you're not sure whether you have that, ask whoever
+manages the `hvaughanattmforum` account.
 
 1. **Open the app** at <https://componentspecstudio.crowdframe.global>.
 2. **Click "Sign in with GitHub"**, near the top right of the page.
@@ -41,10 +42,9 @@ changes you save are proposed as a **pull request** under your GitHub
 username, not committed directly - someone reviews it before it's merged,
 same as a normal GitHub workflow.
 
-If you see "Repository not found" or a similar error right after signing in,
-that usually means either your GitHub account doesn't yet have access to the
-specification repository, or the app itself is still waiting on IT/help desk
-approval at the organization level (unrelated to your own sign-in).
+If saving fails with a permissions error, that usually means your GitHub
+account isn't a collaborator on the specification repository yet - reading
+works for anyone, but pushing a branch does not.
 
 ## Local development
 
@@ -65,7 +65,7 @@ tool against one local checkout, same as the original desktop app - useful
 for quick local testing without exercising the per-session clone/PR flow:
 
 ```
-REPO_ROOT=/path/to/your/TMForum-ODA-Component-Specification/checkout npm --prefix server start
+REPO_ROOT=/path/to/your/WebSpecDemoData/checkout npm --prefix server start
 ```
 
 `POST /api/save` still writes straight to that checkout in this mode; no
@@ -110,7 +110,7 @@ client baked in - see [`Dockerfile`](Dockerfile)):
 docker build -t oda-web-studio .
 docker run -p 4310:4310 \
   -e SESSION_SECRET=... -e GITHUB_CLIENT_ID=... -e GITHUB_CLIENT_SECRET=... \
-  -e SPEC_REPO_URL=https://github.com/tmforum-rand/TMForum-ODA-Component-Specification.git \
+  -e SPEC_REPO_URL=https://github.com/hvaughanattmforum/WebSpecDemoData.git \
   oda-web-studio
 ```
 
