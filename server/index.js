@@ -943,8 +943,12 @@ function linksFilePath(root, dirName, suffix) {
   return path.join(specificationsDir(root), dirName, 'Diagrams', `${id}_${suffix}.md`);
 }
 
+// Sentinel below stands in for escaped `\|` while splitting on the real column
+// pipes. Keep it written as an escape sequence, not a literal NUL character - a
+// raw NUL in the source makes `file` and ripgrep classify this whole file as
+// binary, so content searches over it silently return nothing.
 function splitTableRow(line) {
-  const PLACEHOLDER = ' ';
+  const PLACEHOLDER = '\u0000';
   let trimmed = line.trim().replace(/\\\|/g, PLACEHOLDER);
   if (trimmed.startsWith('|')) trimmed = trimmed.slice(1);
   if (trimmed.endsWith('|')) trimmed = trimmed.slice(0, -1);
