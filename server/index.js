@@ -927,12 +927,7 @@ app.get('/api/components', (req, res) => {
 // hand-maintained relationships the YAML alone can't express, transcribed by
 // hand from each component's original spec PDF: which eTOM activity
 // connects to which SID ABE (eTOM_SID_Links - the "eTOM L2 - SID ABEs links"
-// diagram), which eTOM activity connects directly to another eTOM activity
-// (eTOM_eTOM_Links), and which SID ABE connects directly to another SID ABE
-// (SID_SID_Links) - the latter two are links the same source diagram draws
-// that don't fit eTOM_SID_Links' schema, split into their own files (see
-// TMFC037_eTOM_eTOM_Links.md, TMFC035/TMFC039_SID_SID_Links.md for real
-// examples). They're plain GFM tables with a title and free-text provenance
+// diagram). It's a plain GFM table with a title and free-text provenance
 // notes before/after, so parsing has to locate the table by its separator
 // row (`|---|---|...`) rather than by exact header wording, and cell values
 // that contain a literal `|` (the "YAML ..." columns pack multiple
@@ -999,14 +994,7 @@ function renderLinksMarkdown({ heading, notesBefore, notesAfter, links }, column
   return parts.join('\n');
 }
 
-// Column schema matched to the real checked-in files (not invented):
-// eTOM_eTOM_Links has no YAML cross-reference columns in any real example
-// (just the two activity labels + Direction); SID_SID_Links has the same
-// 5-column shape as eTOM_SID_Links but source/target are both SID ABEs.
-// "Direction" in the eTOM_eTOM/SID_SID tables is free text in practice
-// ("bidirectional" or "one-directional (Source -> Target)"), unlike
-// eTOM_SID_Links' fixed three-value Direction - so only eTOM_SID_Links'
-// Direction is a constrained dropdown; the other two are plain text fields.
+// Column schema matched to the real checked-in files (not invented).
 const LINK_TYPES = {
   etomSid: {
     suffix: 'eTOM_SID_Links',
@@ -1014,20 +1002,6 @@ const LINK_TYPES = {
     columns: ['eTOM activity', 'SID ABE', 'Direction', 'YAML eTOM', 'YAML SID'],
     fields: ['etomActivity', 'sidABE', 'direction', 'yamlETOM', 'yamlSID'],
     defaultHeading: (id) => `${id} eTOM–SID Links`,
-  },
-  etomEtom: {
-    suffix: 'eTOM_eTOM_Links',
-    route: 'etom-etom-links',
-    columns: ['Source eTOM activity', 'Target eTOM activity', 'Direction'],
-    fields: ['sourceActivity', 'targetActivity', 'direction'],
-    defaultHeading: (id) => `${id} eTOM–eTOM Links`,
-  },
-  sidSid: {
-    suffix: 'SID_SID_Links',
-    route: 'sid-sid-links',
-    columns: ['Source SID ABE', 'Target SID ABE', 'Direction', 'YAML source', 'YAML target'],
-    fields: ['sourceSID', 'targetSID', 'direction', 'yamlSource', 'yamlTarget'],
-    defaultHeading: (id) => `${id} SID–SID Links`,
   },
 };
 
@@ -1083,13 +1057,6 @@ Object.values(LINK_TYPES).forEach(registerLinksRoutes);
 // enforced here - older versions are still legitimate, so the server accepts
 // whatever the client sends.
 const COMMON_LINK_TYPES = {
-  commonSidSid: {
-    route: 'common-sid-sid-links',
-    fileName: 'Common_SID_SID_Links.md',
-    columns: ['Direction', 'YAML source', 'YAML target'],
-    fields: ['direction', 'yamlSource', 'yamlTarget'],
-    defaultHeading: 'Common SID–SID Links',
-  },
   commonComponentSidOwner: {
     route: 'common-component-sid-owner-links',
     fileName: 'Common_Component_SID_owner_Links.md',
@@ -1136,33 +1103,51 @@ function registerCommonLinksRoutes(type) {
 Object.values(COMMON_LINK_TYPES).forEach(registerCommonLinksRoutes);
 
 // Description lookup files (Diagrams/<ID>_eTOM_Descriptions.md,
-// Diagrams/<ID>_FF_Descriptions.md) hold prose the YAML has no room for:
-// each eTOM activity's, or each Functional Framework function's, own
-// descriptive text (and, for FF, its two Aggregate Function Level columns),
-// transcribed by hand from the component's original published .docx/.pdf -
-// that text lives in the eTOM/Functional Framework standards themselves,
-// not in this component's own YAML (see the component-specification-markdown
-// skill's references/diagrams.md, "eTOM/Functional Framework descriptions").
+// Diagrams/<ID>_FF_Descriptions.md, Diagrams/<ID>_SID_Descriptions.md) hold
+// prose the YAML has no room for: each eTOM activity's, or each Functional
+// Framework function's, own descriptive text (and, for FF, its two
+// Aggregate Function Level columns), plus three provenance columns -
+// Version, Document Name, Alignment Notes - recording which framework
+// release the row was transcribed at, the activity/function name as it
+// appears in the source document, and whether that still matches the
+// component's current YAML. SID_Descriptions instead keeps each SID ABE's
+// own Level 1/Level 2 definitions and its original "Source" column
+// (TMFCxxx_vX.Y.Z.pdf) - it wasn't converted to the Version/Document
+// Name/Alignment Notes shape above because, unlike eTOM/FF, only one real
+// file of this type exists (TMFC002_SID_Descriptions.md - the template was
+// derived from it as-is). All of this is transcribed by hand from the
+// component's original published .docx/.pdf - that text lives in the
+// eTOM/SID/Functional Framework standards themselves, not in this
+// component's own YAML (see the component-specification-markdown skill's
+// references/diagrams.md, "eTOM/Functional Framework descriptions").
 // Same heading + free-text source note + GFM table shape as the link tables
-// above (real examples: TMFC005_eTOM_Descriptions.md/_FF_Descriptions.md),
-// so this reuses linksFilePath/parseLinksMarkdown/renderLinksMarkdown/
-// registerLinksRoutes as-is - "links" in those names is a misnomer once
-// shared like this, but they were already fully generic (column/field
-// arrays of any shape), so there's nothing description-specific to add.
+// above (real examples: TMFC005_eTOM_Descriptions.md/_FF_Descriptions.md,
+// TMFC002_SID_Descriptions.md), so this reuses linksFilePath/
+// parseLinksMarkdown/renderLinksMarkdown/registerLinksRoutes as-is - "links"
+// in those names is a misnomer once shared like this, but they were already
+// fully generic (column/field arrays of any shape), so there's nothing
+// description-specific to add.
 const DESCRIPTION_TYPES = {
   etom: {
     suffix: 'eTOM_Descriptions',
     route: 'etom-descriptions',
-    columns: ['Identifier', 'Description'],
-    fields: ['identifier', 'description'],
+    columns: ['Identifier', 'Description', 'Version', 'Document Name', 'Alignment Notes'],
+    fields: ['identifier', 'description', 'version', 'documentName', 'alignmentNotes'],
     defaultHeading: (id) => `${id} eTOM Business Activity Descriptions`,
   },
   ff: {
     suffix: 'FF_Descriptions',
     route: 'ff-descriptions',
-    columns: ['Function ID', 'Function Description', 'Aggregate Function Level 1', 'Aggregate Function Level 2'],
-    fields: ['functionId', 'functionDescription', 'aggregateLevel1', 'aggregateLevel2'],
+    columns: ['Function ID', 'Function Description', 'Aggregate Function Level 1', 'Aggregate Function Level 2', 'Version', 'Document Name', 'Alignment Notes'],
+    fields: ['functionId', 'functionDescription', 'aggregateLevel1', 'aggregateLevel2', 'version', 'documentName', 'alignmentNotes'],
     defaultHeading: (id) => `${id} Functional Framework Function Descriptions`,
+  },
+  sid: {
+    suffix: 'SID_Descriptions',
+    route: 'sid-descriptions',
+    columns: ['SID ABE Level 1', 'SID ABE L1 Definition', 'SID ABE Level 2', 'SID ABE L2 Definition', 'Source'],
+    fields: ['sidAbeLevel1', 'sidAbeLevel1Definition', 'sidAbeLevel2', 'sidAbeLevel2Definition', 'source'],
+    defaultHeading: (id) => `${id} SID Descriptions`,
   },
 };
 
