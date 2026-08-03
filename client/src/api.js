@@ -60,18 +60,6 @@ export const api = {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   }).then((res) => res.json().then((body) => ({ status: res.status, ...body }))),
-  componentEtomEtomLinks: (dirName) => fetch(`${BASE}/component/${encodeURIComponent(dirName)}/etom-etom-links`).then(json),
-  saveComponentEtomEtomLinks: (dirName, payload) => fetch(`${BASE}/component/${encodeURIComponent(dirName)}/etom-etom-links`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  }).then((res) => res.json().then((body) => ({ status: res.status, ...body }))),
-  componentSidSidLinks: (dirName) => fetch(`${BASE}/component/${encodeURIComponent(dirName)}/sid-sid-links`).then(json),
-  saveComponentSidSidLinks: (dirName, payload) => fetch(`${BASE}/component/${encodeURIComponent(dirName)}/sid-sid-links`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  }).then((res) => res.json().then((body) => ({ status: res.status, ...body }))),
   componentEtomDescriptions: (dirName) => fetch(`${BASE}/component/${encodeURIComponent(dirName)}/etom-descriptions`).then(json),
   saveComponentEtomDescriptions: (dirName, payload) => fetch(`${BASE}/component/${encodeURIComponent(dirName)}/etom-descriptions`, {
     method: 'POST',
@@ -84,14 +72,14 @@ export const api = {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   }).then((res) => res.json().then((body) => ({ status: res.status, ...body }))),
-  // Repo-root-level (not per-component) common architectural pattern links -
-  // see docs/Common_Links/ in the target repo.
-  commonSidSidLinks: () => fetch(`${BASE}/common-sid-sid-links`).then(json),
-  saveCommonSidSidLinks: (payload) => fetch(`${BASE}/common-sid-sid-links`, {
+  componentSidDescriptions: (dirName) => fetch(`${BASE}/component/${encodeURIComponent(dirName)}/sid-descriptions`).then(json),
+  saveComponentSidDescriptions: (dirName, payload) => fetch(`${BASE}/component/${encodeURIComponent(dirName)}/sid-descriptions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   }).then((res) => res.json().then((body) => ({ status: res.status, ...body }))),
+  // Repo-root-level (not per-component) common architectural pattern links -
+  // see docs/Common_Links/ in the target repo.
   commonComponentSidOwnerLinks: () => fetch(`${BASE}/common-component-sid-owner-links`).then(json),
   saveCommonComponentSidOwnerLinks: (payload) => fetch(`${BASE}/common-component-sid-owner-links`, {
     method: 'POST',

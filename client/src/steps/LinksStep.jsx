@@ -97,11 +97,9 @@ function FieldInput({ field, value, onChange }) {
   return <input type="text" value={value} onChange={(e) => onChange(e.target.value)} />;
 }
 
-// One editable link table backing a Diagrams/<ID>_<suffix>.md file - reused
-// for the eTOM-SID, eTOM-eTOM and SID-SID link tables, which share the same
-// heading/notes/table-of-rows shape and only differ in their columns (see
-// `fields` below) and, for eTOM-SID, a constrained Direction dropdown
-// instead of free text.
+// One editable link table backing a Diagrams/<ID>_<suffix>.md file - the
+// eTOM-SID link table, with a constrained Direction dropdown instead of
+// free text.
 function LinksPanel({ dirName, title, helpText, fields, blankRow, pairKeyFn, getApi, saveApi }) {
   const [data, setData] = useState(null); // { exists, heading, notesBefore, notesAfter, links }
   const [saving, setSaving] = useState(false);
@@ -260,23 +258,9 @@ function unorderedPairKey(a, b) {
   return `${left}||${right}`;
 }
 
-// Source/target are distinct roles (a "source → target" link isn't the same
-// row as its reverse), so unlike the eTOM-SID pair key above, this doesn't
-// sort the two sides - a row and its mirror image are two different,
-// individually-valid rows, not duplicates of each other.
-function orderedPairKey(a, b) {
-  const left = (a || '').trim().toLowerCase();
-  const right = (b || '').trim().toLowerCase();
-  if (!left || !right) return null;
-  return `${left}||${right}`;
-}
-
-// Editor for the three hand-maintained link tables under
+// Editor for the hand-maintained eTOM-SID link table under
 // specifications/<dirName>/Diagrams/ - the eTOM-SID cross-links backing the
-// "eTOM L2 - SID ABEs links" diagram, plus the eTOM-eTOM and SID-SID links
-// the same source diagram sometimes draws directly between two entities of
-// the same taxonomy (real examples: TMFC037_eTOM_eTOM_Links.md,
-// TMFC035/TMFC039_SID_SID_Links.md). Only meaningful once a component
+// "eTOM L2 - SID ABEs links" diagram. Only meaningful once a component
 // directory exists on disk, so this is hidden while creating a brand-new
 // (not yet saved) component.
 export default function LinksStep({ dirName, eTOMs, SIDs }) {
@@ -290,55 +274,21 @@ export default function LinksStep({ dirName, eTOMs, SIDs }) {
   }
 
   return (
-    <>
-      <LinksPanel
-        dirName={dirName}
-        title={<>eTOM&ndash;SID links</>}
-        helpText="These links are to ensure that the SID eTOM links diagram is drawn correctly in the specification document, and do not form part of the specification as such."
-        getApi={api.componentLinks}
-        saveApi={api.saveComponentLinks}
-        blankRow={{ etomActivity: '', sidABE: '', direction: 'bidirectional', yamlETOM: '', yamlSID: '' }}
-        pairKeyFn={(row) => unorderedPairKey(row.yamlETOM, row.yamlSID)}
-        fields={[
-          { key: 'etomActivity', label: 'eTOM diagram display Label', kind: 'text' },
-          { key: 'sidABE', label: 'SID diagram display label', kind: 'text' },
-          { key: 'direction', label: 'Direction', kind: 'select', options: ETOM_SID_DIRECTIONS },
-          { key: 'yamlETOM', label: 'YAML eTOM', kind: 'multiselect', options: eTOMs, hint: 'from the eTOMs picker on the Metadata tab' },
-          { key: 'yamlSID', label: 'YAML SID', kind: 'multiselect', options: SIDs, hint: 'from the SIDs picker on the Metadata tab' },
-        ]}
-      />
-
-      <LinksPanel
-        dirName={dirName}
-        title={<>eTOM&ndash;eTOM links</>}
-        helpText="Direct links between two eTOM activities on the same source diagram, kept separate from the eTOM–SID table above since they connect two eTOM entities rather than an eTOM activity to a SID ABE."
-        getApi={api.componentEtomEtomLinks}
-        saveApi={api.saveComponentEtomEtomLinks}
-        blankRow={{ sourceActivity: '', targetActivity: '', direction: 'bidirectional' }}
-        pairKeyFn={(row) => orderedPairKey(row.sourceActivity, row.targetActivity)}
-        fields={[
-          { key: 'sourceActivity', label: 'Source eTOM activity display label', kind: 'text' },
-          { key: 'targetActivity', label: 'Target eTOM activity display label', kind: 'text' },
-          { key: 'direction', label: 'Direction', kind: 'text' },
-        ]}
-      />
-
-      <LinksPanel
-        dirName={dirName}
-        title={<>SID&ndash;SID links</>}
-        helpText="Direct links between two SID entities on the same source diagram, kept separate from the eTOM–SID table above since they connect two SID entities rather than a SID ABE to an eTOM activity."
-        getApi={api.componentSidSidLinks}
-        saveApi={api.saveComponentSidSidLinks}
-        blankRow={{ sourceSID: '', targetSID: '', direction: 'bidirectional', yamlSource: '', yamlTarget: '' }}
-        pairKeyFn={(row) => orderedPairKey(row.yamlSource || row.sourceSID, row.yamlTarget || row.targetSID)}
-        fields={[
-          { key: 'sourceSID', label: 'Source SID display label', kind: 'text' },
-          { key: 'targetSID', label: 'Target SID display label', kind: 'text' },
-          { key: 'direction', label: 'Direction', kind: 'text' },
-          { key: 'yamlSource', label: 'YAML source', kind: 'multiselect', options: SIDs, hint: 'from the SIDs picker on the Metadata tab' },
-          { key: 'yamlTarget', label: 'YAML target', kind: 'multiselect', options: SIDs, hint: 'from the SIDs picker on the Metadata tab' },
-        ]}
-      />
-    </>
+    <LinksPanel
+      dirName={dirName}
+      title={<>eTOM&ndash;SID links</>}
+      helpText="These links are to ensure that the SID eTOM links diagram is drawn correctly in the specification document, and do not form part of the specification as such."
+      getApi={api.componentLinks}
+      saveApi={api.saveComponentLinks}
+      blankRow={{ etomActivity: '', sidABE: '', direction: 'bidirectional', yamlETOM: '', yamlSID: '' }}
+      pairKeyFn={(row) => unorderedPairKey(row.yamlETOM, row.yamlSID)}
+      fields={[
+        { key: 'etomActivity', label: 'eTOM diagram display Label', kind: 'text' },
+        { key: 'sidABE', label: 'SID diagram display label', kind: 'text' },
+        { key: 'direction', label: 'Direction', kind: 'select', options: ETOM_SID_DIRECTIONS },
+        { key: 'yamlETOM', label: 'YAML eTOM', kind: 'multiselect', options: eTOMs, hint: 'from the eTOMs picker on the Metadata tab' },
+        { key: 'yamlSID', label: 'YAML SID', kind: 'multiselect', options: SIDs, hint: 'from the SIDs picker on the Metadata tab' },
+      ]}
+    />
   );
 }

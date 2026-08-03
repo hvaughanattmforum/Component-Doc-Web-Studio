@@ -20,10 +20,14 @@ function FieldInput({ field, value, onChange }) {
 
 // One editable description table backing a Diagrams/<ID>_<suffix>.md file -
 // each row is keyed by a single identifier (an eTOM activity ID or a
-// Functional Framework function ID), unlike the Links tab's two-sided
-// pairing, so duplicate detection here is just "this identifier already has
-// a row" rather than a pair key.
-function DescriptionsPanel({ dirName, title, helpText, fields, blankRow, getApi, saveApi }) {
+// Functional Framework function ID) by default, unlike the Links tab's
+// two-sided pairing, so duplicate detection here is just "this identifier
+// already has a row" rather than a pair key. SID descriptions are the
+// exception: "SID ABE Level 1" alone legitimately repeats once per Level 2
+// child (see TMFC002_SID_Descriptions.md's two "Customer Product Order"
+// rows), so that panel passes a dupKeyFn combining both levels instead of
+// relying on the fields[0] default.
+function DescriptionsPanel({ dirName, title, helpText, fields, blankRow, getApi, saveApi, dupKeyFn }) {
   const [data, setData] = useState(null); // { exists, heading, notesBefore, notesAfter, links }
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState(null); // { ok, error? }
@@ -69,7 +73,7 @@ function DescriptionsPanel({ dirName, title, helpText, fields, blankRow, getApi,
   }
 
   const rows = data.links; // server field is generically named "links" - reused as-is for description rows
-  const idKey = fields[0].key;
+  const keyFn = dupKeyFn || ((row) => row[fields[0].key]);
 
   const updateRow = (i, field, value) => {
     const next = rows.slice();
@@ -81,11 +85,11 @@ function DescriptionsPanel({ dirName, title, helpText, fields, blankRow, getApi,
 
   const idCounts = {};
   rows.forEach((r) => {
-    const v = (r[idKey] || '').trim();
+    const v = (keyFn(r) || '').trim();
     if (v) idCounts[v] = (idCounts[v] || 0) + 1;
   });
   const isDuplicateRow = (row) => {
-    const v = (row[idKey] || '').trim();
+    const v = (keyFn(row) || '').trim();
     return Boolean(v) && idCounts[v] > 1;
   };
   const hasDuplicates = rows.some(isDuplicateRow);
@@ -133,7 +137,7 @@ function DescriptionsPanel({ dirName, title, helpText, fields, blankRow, getApi,
             <div className="card" key={i} style={{ paddingTop: 14, ...(isDuplicate ? { borderColor: 'var(--danger)' } : null) }}>
               {isDuplicate && (
                 <p className="hint" style={{ color: 'var(--danger)' }}>
-                  This identifier already has a row above - each entry should appear once.
+                  This entry is already captured by another row above - each entry should appear once.
                 </p>
               )}
               {fields.map((f) => (
@@ -148,7 +152,7 @@ function DescriptionsPanel({ dirName, title, helpText, fields, blankRow, getApi,
                 </button>
                 {isActive && result?.ok && <span className="hint" style={{ color: 'var(--ok)' }}>Saved.</span>}
                 {isActive && result?.error && <span className="hint" style={{ color: 'var(--danger)' }}>{result.error}</span>}
-                {isDuplicate && <span className="hint" style={{ color: 'var(--danger)' }}>Resolve the duplicate identifier above to save.</span>}
+                {isDuplicate && <span className="hint" style={{ color: 'var(--danger)' }}>Resolve the duplicate entry above to save.</span>}
                 <button type="button" className="remove" onClick={() => removeRow(i)} style={{ marginLeft: 'auto' }}>Remove</button>
               </div>
             </div>
@@ -183,12 +187,17 @@ function idOptionsFrom(entries) {
   });
 }
 
-// Editor for the two hand-maintained lookup tables under
+// Editor for the three hand-maintained lookup tables under
 // specifications/<dirName>/Diagrams/ that hold descriptive prose the YAML
 // has no room for: each eTOM activity's own business description (section
-// 2.1), and each Functional Framework function's own description plus its
-// two Aggregate Function Level columns (section 2.4) - real examples:
-// TMFC005_eTOM_Descriptions.md, TMFC005_FF_Descriptions.md. Only meaningful
+// 2.1), each Functional Framework function's own description plus its two
+// Aggregate Function Level columns (section 2.4) - both also carrying
+// Version/Document Name/Alignment Notes provenance columns recording which
+// framework release a row was transcribed at, its name in the source
+// document, and whether that still matches the component's YAML - and each
+// SID ABE's own Level 1/Level 2 definitions plus its original Source column
+// (section 2.2) - real examples: TMFC005_eTOM_Descriptions.md,
+// TMFC005_FF_Descriptions.md, TMFC002_SID_Descriptions.md. Only meaningful
 // once a component directory exists on disk, so this is hidden while
 // creating a brand-new (not yet saved) component.
 export default function DescriptionsStep({ dirName, eTOMs, functionalFrameworkFunctions }) {
@@ -212,10 +221,13 @@ export default function DescriptionsStep({ dirName, eTOMs, functionalFrameworkFu
         helpText="Section 2.1 - each eTOM activity's own descriptive text. This prose lives in the eTOM standard itself, not this component's YAML, so it's transcribed here once from the component's published document."
         getApi={api.componentEtomDescriptions}
         saveApi={api.saveComponentEtomDescriptions}
-        blankRow={{ identifier: '', description: '' }}
+        blankRow={{ identifier: '', description: '', version: '', documentName: '', alignmentNotes: '' }}
         fields={[
           { key: 'identifier', label: 'Identifier', kind: 'select', options: etomOptions },
           { key: 'description', label: 'Description', kind: 'textarea' },
+          { key: 'version', label: 'Version', kind: 'text' },
+          { key: 'documentName', label: 'Document Name', kind: 'text' },
+          { key: 'alignmentNotes', label: 'Alignment Notes', kind: 'text' },
         ]}
       />
 
@@ -225,12 +237,32 @@ export default function DescriptionsStep({ dirName, eTOMs, functionalFrameworkFu
         helpText="Section 2.4 - each Functional Framework function's own descriptive text and Aggregate Function Level columns, transcribed from the component's published document."
         getApi={api.componentFFDescriptions}
         saveApi={api.saveComponentFFDescriptions}
-        blankRow={{ functionId: '', functionDescription: '', aggregateLevel1: '', aggregateLevel2: '' }}
+        blankRow={{ functionId: '', functionDescription: '', aggregateLevel1: '', aggregateLevel2: '', version: '', documentName: '', alignmentNotes: '' }}
         fields={[
           { key: 'functionId', label: 'Function ID', kind: 'select', options: ffOptions },
           { key: 'functionDescription', label: 'Function Description', kind: 'textarea' },
           { key: 'aggregateLevel1', label: 'Aggregate Function Level 1', kind: 'text' },
           { key: 'aggregateLevel2', label: 'Aggregate Function Level 2', kind: 'text' },
+          { key: 'version', label: 'Version', kind: 'text' },
+          { key: 'documentName', label: 'Document Name', kind: 'text' },
+          { key: 'alignmentNotes', label: 'Alignment Notes', kind: 'text' },
+        ]}
+      />
+
+      <DescriptionsPanel
+        dirName={dirName}
+        title="SID descriptions"
+        helpText="Section 2.2 - each SID ABE's own Level 1/Level 2 definitions, transcribed from the component's published document. A Level 1 ABE with multiple Level 2 entities gets one row per entity, so duplicates are only flagged when both levels match another row."
+        getApi={api.componentSidDescriptions}
+        saveApi={api.saveComponentSidDescriptions}
+        blankRow={{ sidAbeLevel1: '', sidAbeLevel1Definition: '', sidAbeLevel2: '', sidAbeLevel2Definition: '', source: '' }}
+        dupKeyFn={(row) => `${(row.sidAbeLevel1 || '').trim().toLowerCase()}||${(row.sidAbeLevel2 || '').trim().toLowerCase()}`}
+        fields={[
+          { key: 'sidAbeLevel1', label: 'SID ABE Level 1', kind: 'text' },
+          { key: 'sidAbeLevel1Definition', label: 'SID ABE L1 Definition', kind: 'textarea' },
+          { key: 'sidAbeLevel2', label: 'SID ABE Level 2', kind: 'text' },
+          { key: 'sidAbeLevel2Definition', label: 'SID ABE L2 Definition', kind: 'textarea' },
+          { key: 'source', label: 'Source', kind: 'text' },
         ]}
       />
     </>

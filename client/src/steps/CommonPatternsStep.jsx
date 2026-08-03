@@ -27,13 +27,6 @@ function oldSidVersionsIn(value) {
   return tokens.filter((t) => compareVersions(t, MIN_SID_VERSION) < 0);
 }
 
-function orderedPairKey(a, b) {
-  const left = (a || '').trim().toLowerCase();
-  const right = (b || '').trim().toLowerCase();
-  if (!left || !right) return null;
-  return `${left}||${right}`;
-}
-
 // A field can be a plain text input, or (kind: 'select') a dropdown
 // constrained to `options` - used for "Depicted under component" so it can
 // only be set to a component that actually exists in the repo. A row saved
@@ -324,29 +317,6 @@ function CommonLinksPanel({ title, helpText, fields, blankRow, pairKeyFn, versio
         )}
       </div>
     </div>
-  );
-}
-
-// Editor for docs/Common_Links/Common_SID_SID_Links.md - the consolidated,
-// cross-component list of direct SID-ABE-to-SID-ABE links (as opposed to the
-// per-component SID-SID links edited on the Links step).
-export function CommonSidSidLinksStep() {
-  return (
-    <CommonLinksPanel
-      title={<>Common SID&ndash;SID links</>}
-      helpText="Consolidated SID ABE-to-SID ABE links drawn directly between two SID entities on a component's 2.3 eTOM L2 - SID ABEs links diagram, across all components. Backs docs/Common_Links/Common_SID_SID_Links.md."
-      getApi={api.commonSidSidLinks}
-      saveApi={api.saveCommonSidSidLinks}
-      blankRow={{ direction: 'bidirectional', yamlSource: '', yamlTarget: '' }}
-      pairKeyFn={(row) => orderedPairKey(row.yamlSource, row.yamlTarget)}
-      versionFields={['yamlSource', 'yamlTarget']}
-      arrowAfter={['yamlSource']}
-      fields={[
-        { key: 'direction', label: 'Direction' },
-        { key: 'yamlSource', label: 'YAML source' },
-        { key: 'yamlTarget', label: 'YAML target' },
-      ]}
-    />
   );
 }
 
