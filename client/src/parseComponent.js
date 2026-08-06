@@ -39,8 +39,8 @@ function parseApiEntry(entry) {
 
 function parseEventEntry(entry, kind) {
   return {
+    id: entry.id || '',
     name: entry.name || '',
-    apiId: '',
     hub: kind === 'published' ? (entry.hub || '') : '',
     callback: kind === 'subscribed' ? (entry['call-back'] || '') : '',
     implementation: entry.implementation || '',

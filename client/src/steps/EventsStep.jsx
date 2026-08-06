@@ -8,7 +8,9 @@ import { matchCatalogEntry } from '../apiCatalogUtils.js';
 // Management", published as event name "ProductCatalogManagement". That
 // name, and the list of events available to publish, both come straight
 // from the API's own swagger (info.title and its /listener/* paths) rather
-// than being typed in or guessed.
+// than being typed in or guessed. Keyed by id (not name) since id is the
+// exposed API's real identity - matches how exposedAPIs/dependentAPIs key
+// off `id` rather than the human-readable name.
 function useExposedApiEvents(exposedAPIs, apiCatalog) {
   const [byId, setById] = useState({}); // { [apiId]: { name, events } }
   const [loading, setLoading] = useState({}); // { [apiId]: true }
@@ -40,10 +42,10 @@ function useExposedApiEvents(exposedAPIs, apiCatalog) {
   const options = ids
     .filter((id) => byId[id])
     .map((id) => ({ id, name: byId[id].name }));
-  const eventsByName = Object.fromEntries(options.map((o) => [o.name, byId[o.id].events]));
+  const eventsById = Object.fromEntries(options.map((o) => [o.id, byId[o.id].events]));
   const anyLoading = ids.some((id) => loading[id]);
 
-  return { options, eventsByName, anyLoading };
+  return { options, byId, eventsById, anyLoading };
 }
 
 // Two even columns rather than a flex-wrap that reflows unpredictably with
@@ -144,24 +146,35 @@ function ManualResourceRows({ resources, onChange }) {
 }
 
 export default function EventsStep({ state, setState, apiCatalog }) {
-  const { options: publishedNameOptions, eventsByName, anyLoading } = useExposedApiEvents(state.exposedAPIs, apiCatalog);
+  const { options: publishedIdOptions, byId: publishedById, eventsById, anyLoading } = useExposedApiEvents(state.exposedAPIs, apiCatalog);
 
   const updatePublished = (i, field, value) => {
     const next = state.publishedEvents.slice();
     next[i] = { ...next[i], [field]: value };
     setState({ ...state, publishedEvents: next });
   };
-  // An exposed API only has one real event-group name, so it doesn't make
-  // sense for two published-event cards to both claim it - each API name is
-  // offered to exactly one card at a time.
-  const usedPublishedNames = new Set(state.publishedEvents.map((p) => p.name).filter(Boolean));
-  const unusedPublishedOptions = publishedNameOptions.filter((o) => !usedPublishedNames.has(o.name));
-  const addPublished = () => setState({
-    ...state,
-    publishedEvents: [...state.publishedEvents, {
-      name: unusedPublishedOptions[0]?.name || '', apiType: 'openapi', resources: [],
-    }],
-  });
+  // Picking an API ID also fixes the name to that API's real swagger-derived
+  // event-group name (not user-editable) - one atomic update so the two
+  // fields never drift out of sync with each other.
+  const updatePublishedApi = (i, id) => {
+    const next = state.publishedEvents.slice();
+    next[i] = { ...next[i], id, name: publishedById[id]?.name || '' };
+    setState({ ...state, publishedEvents: next });
+  };
+  // An exposed API only has one real event-group identity, so it doesn't
+  // make sense for two published-event cards to both claim it - each API id
+  // is offered to exactly one card at a time.
+  const usedPublishedIds = new Set(state.publishedEvents.map((p) => p.id).filter(Boolean));
+  const unusedPublishedOptions = publishedIdOptions.filter((o) => !usedPublishedIds.has(o.id));
+  const addPublished = () => {
+    const first = unusedPublishedOptions[0];
+    setState({
+      ...state,
+      publishedEvents: [...state.publishedEvents, {
+        id: first?.id || '', name: first?.name || '', apiType: 'openapi', resources: [],
+      }],
+    });
+  };
   const removePublished = (i) => setState({ ...state, publishedEvents: state.publishedEvents.filter((_, idx) => idx !== i) });
 
   const updateSubscribed = (i, field, value) => {
@@ -172,7 +185,7 @@ export default function EventsStep({ state, setState, apiCatalog }) {
   const addSubscribed = () => setState({
     ...state,
     subscribedEvents: [...state.subscribedEvents, {
-      name: '', apiId: '', apiType: 'openapi', resources: [],
+      name: '', id: '', apiType: 'openapi', resources: [],
     }],
   });
   const removeSubscribed = (i) => setState({ ...state, subscribedEvents: state.subscribedEvents.filter((_, idx) => idx !== i) });
@@ -183,36 +196,40 @@ export default function EventsStep({ state, setState, apiCatalog }) {
     <>
       <div className="panel">
         <h3 style={{ marginTop: 0 }}>Published events</h3>
-        {addDisabled && !anyLoading && publishedNameOptions.length === 0 && (
+        {addDisabled && !anyLoading && publishedIdOptions.length === 0 && (
           <div className="hint" style={{ marginBottom: 10 }}>Add an exposed API first - published events can only be named after one of the component's own exposed APIs.</div>
         )}
         {addDisabled && anyLoading && (
           <div className="hint" style={{ marginBottom: 10 }}>Loading API names from swagger...</div>
         )}
-        {addDisabled && !anyLoading && publishedNameOptions.length > 0 && (
+        {addDisabled && !anyLoading && publishedIdOptions.length > 0 && (
           <div className="hint" style={{ marginBottom: 10 }}>Every exposed API already has a published event entry.</div>
         )}
         <div className="card-list">
           {state.publishedEvents.map((item, i) => {
-            const events = eventsByName[item.name] || [];
+            const events = eventsById[item.id] || [];
             // Options already claimed by another card are hidden from this
-            // one's dropdown - except this card's own current name, which
+            // one's dropdown - except this card's own current id, which
             // must stay selectable (it's not a duplicate of itself).
-            const optionsForThisCard = publishedNameOptions.filter((o) => o.name === item.name || !usedPublishedNames.has(o.name));
+            const optionsForThisCard = publishedIdOptions.filter((o) => o.id === item.id || !usedPublishedIds.has(o.id));
             return (
               <div className="card" key={i}>
                 <button type="button" className="card-remove remove" onClick={() => removePublished(i)}>Remove</button>
                 <div className="row">
                   <div className="field">
-                    <label>API name</label>
-                    <select value={item.name} onChange={(e) => updatePublished(i, 'name', e.target.value)}>
-                      {!publishedNameOptions.some((o) => o.name === item.name) && (
-                        <option value={item.name}>{item.name || '(select an exposed API)'}</option>
+                    <label>API ID</label>
+                    <select value={item.id} onChange={(e) => updatePublishedApi(i, e.target.value)}>
+                      {!publishedIdOptions.some((o) => o.id === item.id) && (
+                        <option value={item.id}>{item.id || '(select an exposed API)'}</option>
                       )}
                       {optionsForThisCard.map((o) => (
-                        <option key={o.id} value={o.name}>{o.name} ({o.id})</option>
+                        <option key={o.id} value={o.id}>{o.id}</option>
                       ))}
                     </select>
+                  </div>
+                  <div className="field">
+                    <label>Swagger API Name</label>
+                    <input type="text" value={item.name} readOnly className="locked" />
                   </div>
                   <div className="field">
                     <label>API type</label>
@@ -225,7 +242,7 @@ export default function EventsStep({ state, setState, apiCatalog }) {
                     <div className="hint">Loading events from swagger...</div>
                   ) : events.length ? (
                     <EventSelector
-                      key={item.name}
+                      key={item.id}
                       events={events}
                       selected={item.resources}
                       onSave={(evs) => updatePublished(i, 'resources', evs)}
@@ -245,15 +262,15 @@ export default function EventsStep({ state, setState, apiCatalog }) {
         <h3 style={{ marginTop: 0 }}>Subscribed events</h3>
         <div className="card-list">
           {state.subscribedEvents.map((item, i) => {
-            // Same one-API-per-card rule as published events, but apiId is
+            // Same one-API-per-card rule as published events, but id is
             // free text (any external component's API, not a fixed list) so
             // it can only be discouraged (datalist suggestions exclude ids
             // taken elsewhere) and flagged, not hard-prevented like a select.
             const otherApiIds = state.subscribedEvents
               .filter((_, idx) => idx !== i)
-              .map((s) => (s.apiId || '').trim().toUpperCase())
+              .map((s) => (s.id || '').trim().toUpperCase())
               .filter(Boolean);
-            const thisApiId = (item.apiId || '').trim().toUpperCase();
+            const thisApiId = (item.id || '').trim().toUpperCase();
             return (
               <SubscribedEventCard
                 key={i}
@@ -283,7 +300,7 @@ function SubscribedEventCard({ item, apiCatalog, onChange, onRemove, index, excl
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  const match = matchCatalogEntry(apiCatalog, (item.apiId || '').trim());
+  const match = matchCatalogEntry(apiCatalog, (item.id || '').trim());
   const datalistId = `event-api-catalog-options-${index}`;
   // Suggestions exclude APIs already claimed by another subscribed-event
   // card - each API should only be subscribed to once in this panel.
@@ -309,7 +326,7 @@ function SubscribedEventCard({ item, apiCatalog, onChange, onRemove, index, excl
       <button type="button" className="card-remove remove" onClick={onRemove}>Remove</button>
       {isDuplicate && (
         <div className="status-banner error" style={{ marginBottom: 10 }}>
-          {item.apiId} is already used by another subscribed event above - each API should only be subscribed to once.
+          {item.id} is already used by another subscribed event above - each API should only be subscribed to once.
         </div>
       )}
       <div className="row">
@@ -318,8 +335,8 @@ function SubscribedEventCard({ item, apiCatalog, onChange, onRemove, index, excl
           <input
             type="text"
             list={datalistId}
-            value={item.apiId}
-            onChange={(e) => { onChange('apiId', e.target.value); setEvents(null); }}
+            value={item.id}
+            onChange={(e) => { onChange('id', e.target.value); setEvents(null); }}
             placeholder="TMF633"
             className={isDuplicate ? 'duplicate' : undefined}
           />
@@ -338,7 +355,7 @@ function SubscribedEventCard({ item, apiCatalog, onChange, onRemove, index, excl
       </div>
       <div className="field">
         <label>Available events <span className="hint">from the API's real swagger spec</span></label>
-        {!match && <div className="hint">No catalog entry found for {item.apiId || '(no id entered)'} - add event names manually below.</div>}
+        {!match && <div className="hint">No catalog entry found for {item.id || '(no id entered)'} - add event names manually below.</div>}
         {match && !events && (
           <button type="button" onClick={lookup} disabled={loading}>
             {loading ? 'Loading spec...' : `Load events from ${match.id} v${match.version} spec`}

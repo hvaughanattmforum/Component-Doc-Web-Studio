@@ -4,7 +4,7 @@
     {
       "name": "doc-web-studio-server",
       "runtimeExecutable": "node",
-      "runtimeArgs": ["--watch", "server/index.js"],
+      "runtimeArgs": ["--env-file=.env", "--watch", "server/index.js"],
       "port": 4310
     },
     {
