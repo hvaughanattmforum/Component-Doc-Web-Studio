@@ -55,7 +55,7 @@ function buildApiEntry(entry) {
 
 function buildEventEntry(entry, kind) {
   const raw = entry.raw ? JSON.parse(JSON.stringify(entry.raw)) : {};
-  const out = { ...raw, name: entry.name.trim() };
+  const out = { ...raw, id: (entry.id || '').trim(), name: entry.name.trim() };
   if (kind === 'published' && entry.hub) out.hub = entry.hub.trim();
   if (kind === 'subscribed' && entry.callback) out['call-back'] = entry.callback.trim();
   if (entry.implementation) out.implementation = entry.implementation.trim();
