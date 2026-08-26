@@ -100,7 +100,7 @@ function FieldInput({ field, value, onChange }) {
 // One editable link table backing a Diagrams/<ID>_<suffix>.md file - the
 // eTOM-SID link table, with a constrained Direction dropdown instead of
 // free text.
-function LinksPanel({ dirName, title, helpText, fields, blankRow, pairKeyFn, getApi, saveApi }) {
+function LinksPanel({ dirName, versionDir, title, helpText, fields, blankRow, pairKeyFn, getApi, saveApi }) {
   const [data, setData] = useState(null); // { exists, heading, notesBefore, notesAfter, links }
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState(null); // { ok, error? }
@@ -113,8 +113,8 @@ function LinksPanel({ dirName, title, helpText, fields, blankRow, pairKeyFn, get
   useEffect(() => {
     setData(null);
     setResult(null);
-    if (!dirName) return;
-    getApi(dirName).then((d) => {
+    if (!dirName || !versionDir) return;
+    getApi(dirName, versionDir).then((d) => {
       if (d.exists) {
         setData({ ...d, justCreated: false });
         return;
@@ -123,16 +123,16 @@ function LinksPanel({ dirName, title, helpText, fields, blankRow, pairKeyFn, get
       // right away instead of only writing one the first time "Save links"
       // is clicked, so every component that's been opened here has a file
       // in its Diagrams/ folder ready to fill in (or leave empty).
-      saveApi(dirName, { heading: d.heading, notesBefore: '', notesAfter: '', links: [] })
+      saveApi(dirName, versionDir, { heading: d.heading, notesBefore: '', notesAfter: '', links: [] })
         .then(() => setData({ ...d, exists: true, justCreated: true }))
         .catch((err) => {
           setData(d);
           setResult({ ok: false, error: `Could not auto-create the links file: ${err.message}` });
         });
     }).catch((err) => setResult({ ok: false, error: err.message }));
-  }, [dirName]);
+  }, [dirName, versionDir]);
 
-  if (!dirName) {
+  if (!dirName || !versionDir) {
     return (
       <div className="panel panel-white">
         <h3 style={{ marginTop: 0 }}>{title}</h3>
@@ -172,7 +172,7 @@ function LinksPanel({ dirName, title, helpText, fields, blankRow, pairKeyFn, get
     setSaving(true);
     setResult(null);
     try {
-      const res = await saveApi(dirName, {
+      const res = await saveApi(dirName, versionDir, {
         heading: data.heading,
         notesBefore: data.notesBefore,
         notesAfter: data.notesAfter,
@@ -263,8 +263,8 @@ function unorderedPairKey(a, b) {
 // "eTOM L2 - SID ABEs links" diagram. Only meaningful once a component
 // directory exists on disk, so this is hidden while creating a brand-new
 // (not yet saved) component.
-export default function LinksStep({ dirName, eTOMs, SIDs }) {
-  if (!dirName) {
+export default function LinksStep({ dirName, versionDir, eTOMs, SIDs }) {
+  if (!dirName || !versionDir) {
     return (
       <div className="panel panel-white">
         <h3 style={{ marginTop: 0 }}>Links</h3>
@@ -276,6 +276,7 @@ export default function LinksStep({ dirName, eTOMs, SIDs }) {
   return (
     <LinksPanel
       dirName={dirName}
+      versionDir={versionDir}
       title={<>eTOM&ndash;SID links</>}
       helpText="These links are to ensure that the SID eTOM links diagram is drawn correctly in the specification document, and do not form part of the specification as such."
       getApi={api.componentLinks}

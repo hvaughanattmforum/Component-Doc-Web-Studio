@@ -27,7 +27,7 @@ function FieldInput({ field, value, onChange }) {
 // child (see TMFC002_SID_Descriptions.md's two "Customer Product Order"
 // rows), so that panel passes a dupKeyFn combining both levels instead of
 // relying on the fields[0] default.
-function DescriptionsPanel({ dirName, title, helpText, fields, blankRow, getApi, saveApi, dupKeyFn }) {
+function DescriptionsPanel({ dirName, versionDir, title, helpText, fields, blankRow, getApi, saveApi, dupKeyFn }) {
   const [data, setData] = useState(null); // { exists, heading, notesBefore, notesAfter, links }
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState(null); // { ok, error? }
@@ -36,8 +36,8 @@ function DescriptionsPanel({ dirName, title, helpText, fields, blankRow, getApi,
   useEffect(() => {
     setData(null);
     setResult(null);
-    if (!dirName) return;
-    getApi(dirName).then((d) => {
+    if (!dirName || !versionDir) return;
+    getApi(dirName, versionDir).then((d) => {
       if (d.exists) {
         setData({ ...d, justCreated: false });
         return;
@@ -45,16 +45,16 @@ function DescriptionsPanel({ dirName, title, helpText, fields, blankRow, getApi,
       // No file yet for this component - create an empty one on disk right
       // away, matching the Links tab's behavior, so every opened component
       // has a file in its Diagrams/ folder ready to fill in (or leave empty).
-      saveApi(dirName, { heading: d.heading, notesBefore: '', notesAfter: '', links: [] })
+      saveApi(dirName, versionDir, { heading: d.heading, notesBefore: '', notesAfter: '', links: [] })
         .then(() => setData({ ...d, exists: true, justCreated: true }))
         .catch((err) => {
           setData(d);
           setResult({ ok: false, error: `Could not auto-create the file: ${err.message}` });
         });
     }).catch((err) => setResult({ ok: false, error: err.message }));
-  }, [dirName]);
+  }, [dirName, versionDir]);
 
-  if (!dirName) {
+  if (!dirName || !versionDir) {
     return (
       <div className="panel panel-white">
         <h3 style={{ marginTop: 0 }}>{title}</h3>
@@ -100,7 +100,7 @@ function DescriptionsPanel({ dirName, title, helpText, fields, blankRow, getApi,
     setSaving(true);
     setResult(null);
     try {
-      const res = await saveApi(dirName, {
+      const res = await saveApi(dirName, versionDir, {
         heading: data.heading,
         notesBefore: data.notesBefore,
         notesAfter: data.notesAfter,
@@ -200,8 +200,8 @@ function idOptionsFrom(entries) {
 // TMFC005_FF_Descriptions.md, TMFC002_SID_Descriptions.md. Only meaningful
 // once a component directory exists on disk, so this is hidden while
 // creating a brand-new (not yet saved) component.
-export default function DescriptionsStep({ dirName, eTOMs, functionalFrameworkFunctions }) {
-  if (!dirName) {
+export default function DescriptionsStep({ dirName, versionDir, eTOMs, functionalFrameworkFunctions }) {
+  if (!dirName || !versionDir) {
     return (
       <div className="panel panel-white">
         <h3 style={{ marginTop: 0 }}>Descriptions</h3>
@@ -217,6 +217,7 @@ export default function DescriptionsStep({ dirName, eTOMs, functionalFrameworkFu
     <>
       <DescriptionsPanel
         dirName={dirName}
+        versionDir={versionDir}
         title="eTOM business activity descriptions"
         helpText="Section 2.1 - each eTOM activity's own descriptive text. This prose lives in the eTOM standard itself, not this component's YAML, so it's transcribed here once from the component's published document."
         getApi={api.componentEtomDescriptions}
@@ -233,6 +234,7 @@ export default function DescriptionsStep({ dirName, eTOMs, functionalFrameworkFu
 
       <DescriptionsPanel
         dirName={dirName}
+        versionDir={versionDir}
         title="Functional Framework function descriptions"
         helpText="Section 2.4 - each Functional Framework function's own descriptive text and Aggregate Function Level columns, transcribed from the component's published document."
         getApi={api.componentFFDescriptions}
@@ -251,6 +253,7 @@ export default function DescriptionsStep({ dirName, eTOMs, functionalFrameworkFu
 
       <DescriptionsPanel
         dirName={dirName}
+        versionDir={versionDir}
         title="SID descriptions"
         helpText="Section 2.2 - each SID ABE's own Level 1/Level 2 definitions, transcribed from the component's published document. A Level 1 ABE with multiple Level 2 entities gets one row per entity, so duplicates are only flagged when both levels match another row."
         getApi={api.componentSidDescriptions}

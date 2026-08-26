@@ -53,30 +53,32 @@ export const api = {
   apis: () => fetch(`${BASE}/apis`).then(json),
   nextId: () => fetch(`${BASE}/next-id`).then(json),
   components: () => fetch(`${BASE}/components`).then(json),
-  component: (dirName) => fetch(`${BASE}/component/${encodeURIComponent(dirName)}`).then(json),
-  componentLinks: (dirName) => fetch(`${BASE}/component/${encodeURIComponent(dirName)}/links`).then(json),
-  saveComponentLinks: (dirName, payload) => fetch(`${BASE}/component/${encodeURIComponent(dirName)}/links`, {
+  componentVersions: (dirName) => fetch(`${BASE}/component/${encodeURIComponent(dirName)}/versions`).then(json),
+  // versionDir omitted -> server's latest for this component.
+  component: (dirName, versionDir) => fetch(`${BASE}/component/${encodeURIComponent(dirName)}${versionDir ? `?version=${encodeURIComponent(versionDir)}` : ''}`).then(json),
+  componentLinks: (dirName, versionDir) => fetch(`${BASE}/component/${encodeURIComponent(dirName)}/links?version=${encodeURIComponent(versionDir)}`).then(json),
+  saveComponentLinks: (dirName, versionDir, payload) => fetch(`${BASE}/component/${encodeURIComponent(dirName)}/links`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ ...payload, version: versionDir }),
   }).then((res) => res.json().then((body) => ({ status: res.status, ...body }))),
-  componentEtomDescriptions: (dirName) => fetch(`${BASE}/component/${encodeURIComponent(dirName)}/etom-descriptions`).then(json),
-  saveComponentEtomDescriptions: (dirName, payload) => fetch(`${BASE}/component/${encodeURIComponent(dirName)}/etom-descriptions`, {
+  componentEtomDescriptions: (dirName, versionDir) => fetch(`${BASE}/component/${encodeURIComponent(dirName)}/etom-descriptions?version=${encodeURIComponent(versionDir)}`).then(json),
+  saveComponentEtomDescriptions: (dirName, versionDir, payload) => fetch(`${BASE}/component/${encodeURIComponent(dirName)}/etom-descriptions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ ...payload, version: versionDir }),
   }).then((res) => res.json().then((body) => ({ status: res.status, ...body }))),
-  componentFFDescriptions: (dirName) => fetch(`${BASE}/component/${encodeURIComponent(dirName)}/ff-descriptions`).then(json),
-  saveComponentFFDescriptions: (dirName, payload) => fetch(`${BASE}/component/${encodeURIComponent(dirName)}/ff-descriptions`, {
+  componentFFDescriptions: (dirName, versionDir) => fetch(`${BASE}/component/${encodeURIComponent(dirName)}/ff-descriptions?version=${encodeURIComponent(versionDir)}`).then(json),
+  saveComponentFFDescriptions: (dirName, versionDir, payload) => fetch(`${BASE}/component/${encodeURIComponent(dirName)}/ff-descriptions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ ...payload, version: versionDir }),
   }).then((res) => res.json().then((body) => ({ status: res.status, ...body }))),
-  componentSidDescriptions: (dirName) => fetch(`${BASE}/component/${encodeURIComponent(dirName)}/sid-descriptions`).then(json),
-  saveComponentSidDescriptions: (dirName, payload) => fetch(`${BASE}/component/${encodeURIComponent(dirName)}/sid-descriptions`, {
+  componentSidDescriptions: (dirName, versionDir) => fetch(`${BASE}/component/${encodeURIComponent(dirName)}/sid-descriptions?version=${encodeURIComponent(versionDir)}`).then(json),
+  saveComponentSidDescriptions: (dirName, versionDir, payload) => fetch(`${BASE}/component/${encodeURIComponent(dirName)}/sid-descriptions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ ...payload, version: versionDir }),
   }).then((res) => res.json().then((body) => ({ status: res.status, ...body }))),
   // Repo-root-level (not per-component) common architectural pattern links -
   // see docs/Common_Links/ in the target repo.
@@ -86,12 +88,12 @@ export const api = {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   }).then((res) => res.json().then((body) => ({ status: res.status, ...body }))),
-  componentSupplement: (dirName) => fetch(`${BASE}/component/${encodeURIComponent(dirName)}/supplement`).then(json),
+  componentSupplement: (dirName, versionDir) => fetch(`${BASE}/component/${encodeURIComponent(dirName)}/supplement?version=${encodeURIComponent(versionDir)}`).then(json),
   // payload: { jiraBody, furtherBody, versionHistoryRows, releaseHistoryRows, acknowledgementsRows }
-  saveComponentSupplement: (dirName, payload) => fetch(`${BASE}/component/${encodeURIComponent(dirName)}/supplement`, {
+  saveComponentSupplement: (dirName, versionDir, payload) => fetch(`${BASE}/component/${encodeURIComponent(dirName)}/supplement`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ ...payload, version: versionDir }),
   }).then((res) => res.json().then((body) => ({ status: res.status, ...body }))),
   // kind: 'etom' | 'sid' | 'functional-framework'. version omitted -> server's latest.
   frameworkCatalog: (kind, version) => fetch(`${BASE}/${kind}${version ? `?version=${encodeURIComponent(version)}` : ''}`).then(json),
