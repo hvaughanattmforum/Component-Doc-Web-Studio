@@ -141,3 +141,8 @@ export function fileNamesFor(state) {
   const fileName = `${dirName}.yaml`;
   return { dirName, fileName };
 }
+
+// The version subfolder a component's YAML lives in, e.g. "TMFC005-v1.2.0".
+export function versionDirFor(state) {
+  return `${state.id.trim()}-v${state.version.trim()}`;
+}

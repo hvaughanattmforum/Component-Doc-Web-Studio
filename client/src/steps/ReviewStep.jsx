@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import yaml from 'js-yaml';
 import { api } from '../api.js';
-import { buildComponent, fileNamesFor } from '../buildComponent.js';
+import { buildComponent, fileNamesFor, versionDirFor } from '../buildComponent.js';
 
 export default function ReviewStep({ state, original, originalLocation, mode }) {
   const [validation, setValidation] = useState(null);
@@ -48,6 +48,12 @@ export default function ReviewStep({ state, original, originalLocation, mode }) 
   const component = buildComponent(state, original);
   const yamlText = yaml.dump(component, { sortKeys: false, lineWidth: -1, noArrayIndent: true });
   const { dirName, fileName } = mode === 'edit' && originalLocation ? originalLocation : fileNamesFor(state);
+  const versionDir = versionDirFor(state);
+  // Bumping the version field while editing targets a brand-new version
+  // subfolder rather than overwriting the one that was loaded - the old
+  // version's files are left untouched, matching how a real version release
+  // adds a new TMFCxxx-vX.Y.Z folder alongside the existing ones.
+  const isNewVersion = mode === 'edit' && originalLocation && originalLocation.versionDir !== versionDir;
 
   const runValidate = async () => {
     setBusy(true);
@@ -66,7 +72,7 @@ export default function ReviewStep({ state, original, originalLocation, mode }) 
   const runSave = async (force = false) => {
     setBusy(true);
     try {
-      const result = await api.save({ component, dirName, fileName, force: force || mode === 'edit' });
+      const result = await api.save({ component, dirName, versionDir, fileName, force: force || (mode === 'edit' && !isNewVersion) });
       setSaveResult(result);
       if (result.ok) { setValidation({ valid: true, errors: [] }); setLastSavedYamlText(yamlText); }
     } catch (err) {
@@ -117,8 +123,13 @@ export default function ReviewStep({ state, original, originalLocation, mode }) 
     <div className="panel">
       <h3 style={{ marginTop: 0 }}>Review &amp; save</h3>
       <div className="field">
-        <label>{mode === 'edit' ? 'Will update' : 'Will be saved to'}</label>
-        <code>specifications/{dirName}/{fileName}</code>
+        <label>{mode === 'edit' && !isNewVersion ? 'Will update' : 'Will be saved to'}</label>
+        <code>specifications/{dirName}/{versionDir}/{fileName}</code>
+        {isNewVersion && (
+          <p className="hint" style={{ marginTop: 6 }}>
+            This creates a new version folder ({versionDir}) — the original {originalLocation.versionDir} is left untouched.
+          </p>
+        )}
       </div>
 
       {validation && !validation.valid && (

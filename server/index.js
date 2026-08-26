@@ -436,11 +436,45 @@ function listComponentDirs(root) {
     .map((d) => d.name);
 }
 
+// Each component folder holds one subfolder per released version
+// (e.g. TMFC005-ProductInventory/TMFC005-v1.2.0/), rather than a single YAML
+// directly inside it - sorted latest-first via the same compareVersions used
+// for the frameworks catalogs, stripping the "<idPrefix>-v" prefix first.
+function listVersionDirs(root, dirName) {
+  const componentDir = path.join(specificationsDir(root), dirName);
+  if (!fs.existsSync(componentDir)) return [];
+  const prefix = `${dirName.split('-')[0]}-v`;
+  return fs.readdirSync(componentDir, { withFileTypes: true })
+    .filter((d) => d.isDirectory() && d.name.startsWith(prefix))
+    .map((d) => d.name)
+    .sort((a, b) => compareVersions(b.slice(prefix.length), a.slice(prefix.length)));
+}
+
+function latestVersionDir(root, dirName) {
+  return listVersionDirs(root, dirName)[0] || null;
+}
+
+function yamlPathFor(root, dirName, versionDir) {
+  return path.join(specificationsDir(root), dirName, versionDir, `${dirName}.yaml`);
+}
+
+// Resolves the ?version=/body `version` param against the component's actual
+// version subfolders: valid + omitted -> latest, valid + given -> that one,
+// invalid/unknown -> a 400/404 the route handlers can return directly.
+function resolveVersionDir(root, dirName, requested) {
+  const versions = listVersionDirs(root, dirName);
+  if (!versions.length) return { error: { status: 404, message: `No versions found for ${dirName}` } };
+  if (!requested) return { versionDir: versions[0] };
+  if (!versions.includes(requested)) return { error: { status: 400, message: `Unknown version "${requested}" for ${dirName}` } };
+  return { versionDir: requested };
+}
+
 function listComponentYamlFiles(root) {
   return listComponentDirs(root).map((dirName) => {
-    const yamlPath = path.join(specificationsDir(root), dirName, `${dirName.split('-')[0]}-${dirName.split('-').slice(1).join('-')}.yaml`);
-    return { dirName, yamlPath };
-  }).filter((f) => fs.existsSync(f.yamlPath));
+    const versionDir = latestVersionDir(root, dirName);
+    if (!versionDir) return null;
+    return { dirName, versionDir, yamlPath: yamlPathFor(root, dirName, versionDir) };
+  }).filter(Boolean).filter((f) => fs.existsSync(f.yamlPath));
 }
 
 // repoRoot is no longer user-configurable here now that each signed-in user
@@ -903,12 +937,13 @@ app.post('/api/frameworks/regenerate', async (req, res) => {
 
 // Lightweight list of existing components, for the "edit existing" picker.
 app.get('/api/components', (req, res) => {
-  const components = listComponentYamlFiles(resolveRepoRoot(req)).map(({ dirName, yamlPath }) => {
+  const components = listComponentYamlFiles(resolveRepoRoot(req)).map(({ dirName, versionDir, yamlPath }) => {
     try {
       const doc = yaml.load(fs.readFileSync(yamlPath, 'utf8'));
       const meta = doc?.spec?.componentMetadata || {};
       return {
         dirName,
+        versionDir,
         fileName: path.basename(yamlPath),
         id: meta.id,
         name: meta.name,
@@ -917,7 +952,7 @@ app.get('/api/components', (req, res) => {
         functionalBlock: meta.functionalBlock,
       };
     } catch {
-      return { dirName, fileName: path.basename(yamlPath), id: null, name: null };
+      return { dirName, versionDir, fileName: path.basename(yamlPath), id: null, name: null };
     }
   }).filter((c) => c.id).sort((a, b) => a.id.localeCompare(b.id));
   res.json({ components });
@@ -933,9 +968,9 @@ app.get('/api/components', (req, res) => {
 // that contain a literal `|` (the "YAML ..." columns pack multiple
 // pipe-delimited identifier parts into one cell) escape it as `\|` to avoid
 // being read as a column break.
-function linksFilePath(root, dirName, suffix) {
+function linksFilePath(root, dirName, suffix, versionDir) {
   const id = dirName.split('-')[0];
-  return path.join(specificationsDir(root), dirName, 'Diagrams', `${id}_${suffix}.md`);
+  return path.join(specificationsDir(root), dirName, versionDir, 'Diagrams', `${id}_${suffix}.md`);
 }
 
 // Sentinel below stands in for escaped `\|` while splitting on the real column
@@ -1015,8 +1050,11 @@ function registerLinksRoutes(type) {
     if (!/^[\w.\-]+$/.test(dirName)) {
       return res.status(400).json({ ok: false, error: 'Invalid dirName' });
     }
+    const root = resolveRepoRoot(req);
+    const resolved = resolveVersionDir(root, dirName, req.query.version);
+    if (resolved.error) return res.status(resolved.error.status).json({ ok: false, error: resolved.error.message });
     const id = dirName.split('-')[0];
-    const filePath = linksFilePath(resolveRepoRoot(req), dirName, type.suffix);
+    const filePath = linksFilePath(root, dirName, type.suffix, resolved.versionDir);
     const defaultHeading = type.defaultHeading(id);
     if (!fs.existsSync(filePath)) {
       return res.json({ ok: true, exists: false, heading: defaultHeading, notesBefore: '', notesAfter: '', links: [] });
@@ -1034,13 +1072,16 @@ function registerLinksRoutes(type) {
     if (!/^[\w.\-]+$/.test(dirName)) {
       return res.status(400).json({ ok: false, error: 'Invalid dirName' });
     }
-    const { heading, notesBefore, notesAfter, links } = req.body;
+    const { heading, notesBefore, notesAfter, links, version } = req.body;
     if (!Array.isArray(links)) {
       return res.status(400).json({ ok: false, error: 'links must be an array' });
     }
+    const root = resolveRepoRoot(req);
+    const resolved = resolveVersionDir(root, dirName, version);
+    if (resolved.error) return res.status(resolved.error.status).json({ ok: false, error: resolved.error.message });
     try {
       const id = dirName.split('-')[0];
-      const filePath = linksFilePath(resolveRepoRoot(req), dirName, type.suffix);
+      const filePath = linksFilePath(root, dirName, type.suffix, resolved.versionDir);
       const defaultHeading = type.defaultHeading(id);
       fs.mkdirSync(path.dirname(filePath), { recursive: true });
       fs.writeFileSync(filePath, renderLinksMarkdown({ heading: heading || defaultHeading, notesBefore, notesAfter, links }, type.columns, type.fields), 'utf8');
@@ -1379,11 +1420,11 @@ function parseSupplementMarkdown(text) {
   return parseSupplementBody(stripSupplementFrontMatter(text));
 }
 
-function readComponentMeta(root, dirName) {
-  const match = listComponentYamlFiles(root).find((f) => f.dirName === dirName);
-  if (!match) return null;
+function readComponentMeta(root, dirName, versionDir) {
+  const yamlPath = yamlPathFor(root, dirName, versionDir);
+  if (!fs.existsSync(yamlPath)) return null;
   try {
-    const doc = yaml.load(fs.readFileSync(match.yamlPath, 'utf8'));
+    const doc = yaml.load(fs.readFileSync(yamlPath, 'utf8'));
     const meta = doc?.spec?.componentMetadata || {};
     return { name: meta.name || null, version: meta.version || null };
   } catch {
@@ -1395,17 +1436,14 @@ function pascalToUnderscore(name) {
   return name.replace(/([a-z0-9])([A-Z])/g, '$1 $2').trim().replace(/\s+/g, '_');
 }
 
-function defaultSupplementFileName(root, dirName) {
+function defaultSupplementFileName(root, dirName, versionDir) {
   const id = dirName.split('-')[0];
-  const match = listComponentYamlFiles(root).find((f) => f.dirName === dirName);
   let name = dirName.split('-').slice(1).join('-');
-  if (match) {
-    try {
-      const doc = yaml.load(fs.readFileSync(match.yamlPath, 'utf8'));
-      name = doc?.spec?.componentMetadata?.name || name;
-    } catch {
-      // fall through to the dirName-derived name
-    }
+  try {
+    const doc = yaml.load(fs.readFileSync(yamlPathFor(root, dirName, versionDir), 'utf8'));
+    name = doc?.spec?.componentMetadata?.name || name;
+  } catch {
+    // fall through to the dirName-derived name
   }
   return `${id}_${pascalToUnderscore(name)}_Supplement.md`;
 }
@@ -1413,8 +1451,8 @@ function defaultSupplementFileName(root, dirName) {
 // Finds the existing file by pattern (never by deriving its name - see
 // comment above) so a legacy non-standard filename is still found rather
 // than treated as missing.
-function findSupplementFile(root, dirName) {
-  const diagramsDir = path.join(specificationsDir(root), dirName, 'Diagrams');
+function findSupplementFile(root, dirName, versionDir) {
+  const diagramsDir = path.join(specificationsDir(root), dirName, versionDir, 'Diagrams');
   if (!fs.existsSync(diagramsDir)) return null;
   const match = fs.readdirSync(diagramsDir).find((f) => f.endsWith('_Supplement.md'));
   return match ? path.join(diagramsDir, match) : null;
@@ -1426,8 +1464,10 @@ app.get('/api/component/:dirName/supplement', (req, res) => {
     return res.status(400).json({ ok: false, error: 'Invalid dirName' });
   }
   const root = resolveRepoRoot(req);
-  const filePath = findSupplementFile(root, dirName);
-  const meta = readComponentMeta(root, dirName);
+  const resolved = resolveVersionDir(root, dirName, req.query.version);
+  if (resolved.error) return res.status(resolved.error.status).json({ ok: false, error: resolved.error.message });
+  const filePath = findSupplementFile(root, dirName, resolved.versionDir);
+  const meta = readComponentMeta(root, dirName, resolved.versionDir);
   if (!filePath) {
     return res.json({ ok: true, exists: false, path: null, meta, ...parseSupplementBody(SUPPLEMENT_TEMPLATE_BODY) });
   }
@@ -1452,17 +1492,20 @@ app.post('/api/component/:dirName/supplement', (req, res) => {
   if (!/^[\w.\-]+$/.test(dirName)) {
     return res.status(400).json({ ok: false, error: 'Invalid dirName' });
   }
-  const { jiraBody, furtherBody, versionHistoryRows, releaseHistoryRows, acknowledgementsRows } = req.body;
+  const { jiraBody, furtherBody, versionHistoryRows, releaseHistoryRows, acknowledgementsRows, version } = req.body;
   if (typeof jiraBody !== 'string' || typeof furtherBody !== 'string') {
     return res.status(400).json({ ok: false, error: 'jiraBody and furtherBody must be strings' });
   }
   if (![versionHistoryRows, releaseHistoryRows, acknowledgementsRows].every(Array.isArray)) {
     return res.status(400).json({ ok: false, error: 'versionHistoryRows, releaseHistoryRows and acknowledgementsRows must be arrays' });
   }
+  const root = resolveRepoRoot(req);
+  const resolved = resolveVersionDir(root, dirName, version);
+  if (resolved.error) return res.status(resolved.error.status).json({ ok: false, error: resolved.error.message });
   try {
-    const root = resolveRepoRoot(req);
-    const filePath = findSupplementFile(root, dirName) || path.join(specificationsDir(root), dirName, 'Diagrams', defaultSupplementFileName(root, dirName));
-    const meta = readComponentMeta(root, dirName);
+    const filePath = findSupplementFile(root, dirName, resolved.versionDir)
+      || path.join(specificationsDir(root), dirName, resolved.versionDir, 'Diagrams', defaultSupplementFileName(root, dirName, resolved.versionDir));
+    const meta = readComponentMeta(root, dirName, resolved.versionDir);
     if (!meta || !meta.name || !meta.version) {
       return res.status(400).json({ ok: false, error: "Could not read this component's name/version from its YAML - save the Metadata tab first." });
     }
@@ -1485,19 +1528,34 @@ app.post('/api/component/:dirName/supplement', (req, res) => {
   }
 });
 
-// Full parsed YAML for one existing component, to prefill the wizard for editing.
+// Version subfolders available for one component (latest first), for the
+// "edit existing" picker's version dropdown.
+app.get('/api/component/:dirName/versions', (req, res) => {
+  const { dirName } = req.params;
+  if (!/^[\w.\-]+$/.test(dirName)) {
+    return res.status(400).json({ ok: false, error: 'Invalid dirName' });
+  }
+  res.json({ versions: listVersionDirs(resolveRepoRoot(req), dirName) });
+});
+
+// Full parsed YAML for one existing component (optionally a specific
+// version), to prefill the wizard for editing.
 app.get('/api/component/:dirName', (req, res) => {
   const { dirName } = req.params;
   if (!/^[\w.\-]+$/.test(dirName)) {
     return res.status(400).json({ ok: false, error: 'Invalid dirName' });
   }
-  const match = listComponentYamlFiles(resolveRepoRoot(req)).find((f) => f.dirName === dirName);
-  if (!match) {
-    return res.status(404).json({ ok: false, error: `No component directory ${dirName}` });
+  const root = resolveRepoRoot(req);
+  const resolved = resolveVersionDir(root, dirName, req.query.version);
+  if (resolved.error) return res.status(resolved.error.status).json({ ok: false, error: resolved.error.message });
+  const { versionDir } = resolved;
+  const yamlPath = yamlPathFor(root, dirName, versionDir);
+  if (!fs.existsSync(yamlPath)) {
+    return res.status(404).json({ ok: false, error: `No component YAML found at ${yamlPath}` });
   }
   try {
-    const component = normalizeDates(yaml.load(fs.readFileSync(match.yamlPath, 'utf8')));
-    res.json({ ok: true, dirName: match.dirName, fileName: path.basename(match.yamlPath), component });
+    const component = normalizeDates(yaml.load(fs.readFileSync(yamlPath, 'utf8')));
+    res.json({ ok: true, dirName, versionDir, fileName: path.basename(yamlPath), component });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
@@ -1691,12 +1749,12 @@ async function commitAndOpenPR(req, { message, prTitle }) {
 app.post('/api/save', async (req, res) => {
   try {
     const root = resolveRepoRoot(req);
-    const { component, dirName, fileName, force } = req.body;
-    if (!dirName || !fileName || !component) {
-      return res.status(400).json({ ok: false, error: 'dirName, fileName and component are required' });
+    const { component, dirName, versionDir, fileName, force } = req.body;
+    if (!dirName || !versionDir || !fileName || !component) {
+      return res.status(400).json({ ok: false, error: 'dirName, versionDir, fileName and component are required' });
     }
-    if (!/^[\w.\-]+$/.test(dirName) || !/^[\w.\-]+\.yaml$/.test(fileName)) {
-      return res.status(400).json({ ok: false, error: 'Invalid dirName or fileName' });
+    if (!/^[\w.\-]+$/.test(dirName) || !/^[\w.\-]+$/.test(versionDir) || !/^[\w.\-]+\.yaml$/.test(fileName)) {
+      return res.status(400).json({ ok: false, error: 'Invalid dirName, versionDir or fileName' });
     }
 
     const validate = buildValidator(root);
@@ -1705,7 +1763,7 @@ app.post('/api/save', async (req, res) => {
       return res.status(422).json({ ok: false, error: 'Component fails schema validation', errors: validate.errors });
     }
 
-    const targetDir = path.join(specificationsDir(root), dirName);
+    const targetDir = path.join(specificationsDir(root), dirName, versionDir);
     const targetFile = path.join(targetDir, fileName);
 
     if (fs.existsSync(targetFile) && !force) {

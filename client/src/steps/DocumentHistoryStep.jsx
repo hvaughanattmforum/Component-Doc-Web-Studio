@@ -74,7 +74,7 @@ function HistoryTable({ columns, rows, editableCount, onChange }) {
 // ever written from this UI. Only meaningful once a component directory
 // exists on disk, so this is hidden while creating a brand-new (not yet
 // saved) component.
-export default function DocumentHistoryStep({ dirName }) {
+export default function DocumentHistoryStep({ dirName, versionDir }) {
   const [data, setData] = useState(null);
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState(null); // { ok, error? }
@@ -86,8 +86,8 @@ export default function DocumentHistoryStep({ dirName }) {
   useEffect(() => {
     setData(null);
     setResult(null);
-    if (!dirName) return;
-    api.componentSupplement(dirName).then((d) => {
+    if (!dirName || !versionDir) return;
+    api.componentSupplement(dirName, versionDir).then((d) => {
       if (d.exists) {
         setData({ ...d, justCreated: false });
         return;
@@ -101,16 +101,16 @@ export default function DocumentHistoryStep({ dirName }) {
         releaseHistoryRows: d.releaseHistory.rows,
         acknowledgementsRows: d.acknowledgements.rows,
       };
-      api.saveComponentSupplement(dirName, payload)
+      api.saveComponentSupplement(dirName, versionDir, payload)
         .then((res) => setData({ ...d, exists: true, path: res.path, justCreated: true }))
         .catch((err) => {
           setData(d);
           setResult({ ok: false, error: `Could not auto-create the Supplement file: ${err.message}` });
         });
     }).catch((err) => setResult({ ok: false, error: err.message }));
-  }, [dirName]);
+  }, [dirName, versionDir]);
 
-  if (!dirName) {
+  if (!dirName || !versionDir) {
     return (
       <div className="panel panel-white">
         <h3 style={{ marginTop: 0 }}>Document History</h3>
@@ -133,7 +133,7 @@ export default function DocumentHistoryStep({ dirName }) {
     setSaving(true);
     setResult(null);
     try {
-      const res = await api.saveComponentSupplement(dirName, {
+      const res = await api.saveComponentSupplement(dirName, versionDir, {
         jiraBody: data.jiraBody,
         furtherBody: data.furtherBody,
         versionHistoryRows: data.versionHistory.rows,

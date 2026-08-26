@@ -106,9 +106,9 @@ export default function App() {
     setStep(0);
   };
 
-  const startEdit = ({ component, dirName, fileName }) => {
+  const startEdit = ({ component, dirName, versionDir, fileName }) => {
     setOriginal(component);
-    setOriginalLocation({ dirName, fileName });
+    setOriginalLocation({ dirName, versionDir, fileName });
     setState(stateFromComponent(component));
     setMode('edit');
     setStep(0);
@@ -229,7 +229,7 @@ export default function App() {
           <div className="main">
             {mode === 'edit' && (
               <div className="status-banner ok" style={{ marginBottom: 16 }}>
-                Editing existing component {originalLocation?.dirName}. ID and name are locked to avoid orphaning its conformance profile/RI/diagram folders.
+                Editing existing component {originalLocation?.dirName} ({originalLocation?.versionDir}). ID and name are locked to avoid orphaning its conformance profile/RI/diagram folders.
               </div>
             )}
 
@@ -250,11 +250,12 @@ export default function App() {
               />
             )}
             {step === 1 && (
-              <LinksStep dirName={originalLocation?.dirName} eTOMs={state.eTOMs} SIDs={state.SIDs} />
+              <LinksStep dirName={originalLocation?.dirName} versionDir={originalLocation?.versionDir} eTOMs={state.eTOMs} SIDs={state.SIDs} />
             )}
             {step === 2 && (
               <DescriptionsStep
                 dirName={originalLocation?.dirName}
+                versionDir={originalLocation?.versionDir}
                 eTOMs={state.eTOMs}
                 functionalFrameworkFunctions={state.functionalFrameworkFunctions}
               />
@@ -287,7 +288,7 @@ export default function App() {
               <ReviewStep state={state} original={original} originalLocation={originalLocation} mode={mode} />
             )}
             {step === 8 && (
-              <DocumentHistoryStep dirName={originalLocation?.dirName} />
+              <DocumentHistoryStep dirName={originalLocation?.dirName} versionDir={originalLocation?.versionDir} />
             )}
             {step === 9 && <CommonComponentSidOwnerStep />}
 
