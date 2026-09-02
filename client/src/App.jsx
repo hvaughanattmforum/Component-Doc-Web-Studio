@@ -117,7 +117,14 @@ export default function App() {
   useEffect(() => {
     if (!authUser) return;
     api.functionalBlocks().then((r) => setFunctionalBlocks(r.functionalBlocks)).catch(() => {});
-    refreshApiCatalog();
+    // The very first /api/health call (mount effect above) fires before
+    // this user has a workspace yet - refreshApiCatalog is a protected
+    // route, so by the time it settles the server has created one (see
+    // resolveRepoRoot's session.workspaceDir fallback in server/index.js).
+    // Re-fetching afterward is what actually gets "Connected to... on
+    // branch..." (and the branch switcher behind it) to appear without the
+    // user having to manually reload the page after signing in.
+    refreshApiCatalog().finally(refreshRepoInfo);
   }, [authUser]);
 
   const signOut = () => api.logout().then(() => setAuthUser(null)).catch(() => {});
