@@ -44,9 +44,43 @@ jobs:
             --cluster "${{ vars.ECS_CLUSTER }}" \
             --service "${{ vars.ECS_SERVICE }}" \
             --force-new-deployment
-          aws ecs wait services-stable \
-            --cluster "${{ vars.ECS_CLUSTER }}" \
-            --services "${{ vars.ECS_SERVICE }}"
+
+          # `aws ecs wait services-stable` expects the service to settle back
+          # down to exactly one deployment/service-revision - but Express
+          # Mode's blue/green model deliberately keeps the previous revision
+          # listed (at requestedTaskCount 0) for instant rollback rather than
+          # removing it, so that condition never becomes true and the waiter
+          # always eventually times out ("Max attempts exceeded") even once
+          # the new revision is genuinely healthy and already serving traffic
+          # - confirmed by a run that failed this exact wait while the site
+          # was already up and correct. Poll for the actual signal instead:
+          # the currently-active revision (requestedTaskCount > 0 - the old
+          # one gets scaled to 0 as part of the swap) has caught up to its
+          # own requested count with nothing left pending. Same 40x15s=10min
+          # budget the waiter used, so a genuinely stuck deployment still
+          # fails in the same timeframe as before.
+          for i in $(seq 1 40); do
+            ACTIVE=$(aws ecs describe-services \
+              --cluster "${{ vars.ECS_CLUSTER }}" \
+              --services "${{ vars.ECS_SERVICE }}" \
+              --output json | jq -c '[.services[0].currentServiceRevisions[] | select(.requestedTaskCount > 0)]')
+            COUNT=$(echo "$ACTIVE" | jq 'length')
+            if [ "$COUNT" = "1" ]; then
+              REQUESTED=$(echo "$ACTIVE" | jq -r '.[0].requestedTaskCount')
+              RUNNING=$(echo "$ACTIVE" | jq -r '.[0].runningTaskCount')
+              PENDING=$(echo "$ACTIVE" | jq -r '.[0].pendingTaskCount')
+              echo "Active revision: requested=$REQUESTED running=$RUNNING pending=$PENDING"
+              if [ "$PENDING" = "0" ] && [ "$RUNNING" = "$REQUESTED" ]; then
+                echo "Deployment is stable."
+                exit 0
+              fi
+            else
+              echo "$COUNT active revisions right now (swap still in progress)."
+            fi
+            sleep 15
+          done
+          echo "::error::New service revision never became stable within 10 minutes."
+          exit 1
 
       - name: Re-point custom domain rule to the now-active target group
         if: vars.ALB_LISTENER_ARN != '' && vars.CUSTOM_DOMAIN_LISTENER_RULE_ARN != ''
