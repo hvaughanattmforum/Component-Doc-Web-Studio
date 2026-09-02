@@ -436,6 +436,18 @@ input.locked {
   max-height: calc(100vh - 40px);
   border-radius: 0 10px 10px 0;
 }
+/* Used by HighlightablePane.jsx when embedded partway down a step's own
+   form (the five hand-edited .md files) instead of App.jsx's persistent
+   .shell third column - sticking to the viewport only makes sense for the
+   one pane that's meant to float alongside a whole wizard step. */
+.yaml-pane.yaml-pane-inline {
+  position: static;
+  max-height: none;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin-top: 16px;
+}
+.yaml-pane-inline .yaml-live { max-height: 320px; }
 .yaml-head {
   padding: 12px 16px 8px;
   border-bottom: 1px solid var(--border);
@@ -445,16 +457,84 @@ input.locked {
 }
 .yaml-head b { font-size: 0.8rem; }
 .yaml-head span { font-size: 0.7rem; color: var(--muted); }
-pre.yaml-live {
+.yaml-live {
   margin: 0;
-  padding: 14px 16px;
+  padding: 6px 0;
   font-family: ui-monospace, monospace;
   font-size: 0.78rem;
   line-height: 1.5;
   overflow: auto;
   flex: 1;
-  white-space: pre;
   max-height: 80vh;
+}
+
+/* Each source line is its own clickable row (see HighlightablePane.jsx),
+   rather than one big <pre> block, so a click/shift-click can highlight a
+   single line or range for the permalink/issue-draft toolbar below. */
+.yaml-line {
+  display: flex;
+  gap: 8px;
+  padding: 0 16px;
+  white-space: pre;
+  cursor: pointer;
+}
+.yaml-line:hover { background: color-mix(in srgb, var(--muted) 10%, var(--bg)); }
+.yaml-linenum {
+  flex-shrink: 0;
+  width: 32px;
+  text-align: right;
+  color: var(--muted);
+  user-select: none;
+}
+.yaml-text { white-space: pre; }
+.yaml-line-selected, .yaml-line-selected:hover {
+  background: color-mix(in srgb, var(--accent) 22%, var(--bg));
+}
+
+.yaml-selection-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.78rem;
+  flex-wrap: wrap;
+}
+.yaml-selection-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.yaml-selection-actions button { font-size: 0.75rem; padding: 4px 8px; }
+
+.issue-draft-box { width: 340px; }
+.issue-draft-list {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 140px;
+  overflow: auto;
+}
+.issue-draft-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.78rem;
+}
+.issue-draft-box label {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.issue-draft-box input, .issue-draft-box textarea {
+  margin-top: 4px;
+  font-size: 0.8rem;
 }
 
 @media (max-width: 1100px) {
@@ -467,7 +547,7 @@ pre.yaml-live {
   .rail { border-radius: 10px 10px 0 0; }
   .main, .shell-no-yaml .main { border-radius: 0; }
   .yaml-pane { position: static; max-height: none; border-radius: 0 0 10px 10px; }
-  pre.yaml-live { max-height: 360px; }
+  .yaml-live { max-height: 360px; }
 }
 
 .checkbox-row {

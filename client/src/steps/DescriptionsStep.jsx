@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api.js';
+import HighlightablePane from '../HighlightablePane.jsx';
+import { renderLinksMarkdown } from '../renderMarkdown.js';
 
 function FieldInput({ field, value, onChange }) {
   if (field.kind === 'select') {
@@ -27,31 +29,46 @@ function FieldInput({ field, value, onChange }) {
 // child (see TMFC002_SID_Descriptions.md's two "Customer Product Order"
 // rows), so that panel passes a dupKeyFn combining both levels instead of
 // relying on the fields[0] default.
-function DescriptionsPanel({ dirName, versionDir, title, helpText, fields, blankRow, getApi, saveApi, dupKeyFn }) {
+function DescriptionsPanel({
+  dirName, versionDir, title, helpText, fields, blankRow, getApi, saveApi, dupKeyFn,
+  columns, suffix, paneKey, repoInfo, step, pendingSelection, pendingSelectionPane, onInitialSelectionApplied, onAddToIssueDraft,
+}) {
   const [data, setData] = useState(null); // { exists, heading, notesBefore, notesAfter, links }
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState(null); // { ok, error? }
   const [activeRow, setActiveRow] = useState(null);
+  const fieldKeys = fields.map((f) => f.key);
+  // The exact markdown text of the most recently loaded-or-saved snapshot -
+  // see the same pattern in App.jsx (savedYamlText/isDirty) and
+  // LinksStep.jsx (savedText/isDirty).
+  const [savedText, setSavedText] = useState(null);
 
   useEffect(() => {
     setData(null);
     setResult(null);
+    setSavedText(null);
     if (!dirName || !versionDir) return;
     getApi(dirName, versionDir).then((d) => {
       if (d.exists) {
         setData({ ...d, justCreated: false });
+        setSavedText(renderLinksMarkdown(d, columns, fieldKeys));
         return;
       }
       // No file yet for this component - create an empty one on disk right
       // away, matching the Links tab's behavior, so every opened component
       // has a file in its Diagrams/ folder ready to fill in (or leave empty).
-      saveApi(dirName, versionDir, { heading: d.heading, notesBefore: '', notesAfter: '', links: [] })
-        .then(() => setData({ ...d, exists: true, justCreated: true }))
+      const seeded = { heading: d.heading, notesBefore: '', notesAfter: '', links: [] };
+      saveApi(dirName, versionDir, seeded)
+        .then(() => {
+          setData({ ...d, exists: true, justCreated: true });
+          setSavedText(renderLinksMarkdown(seeded, columns, fieldKeys));
+        })
         .catch((err) => {
           setData(d);
           setResult({ ok: false, error: `Could not auto-create the file: ${err.message}` });
         });
     }).catch((err) => setResult({ ok: false, error: err.message }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dirName, versionDir]);
 
   if (!dirName || !versionDir) {
@@ -109,6 +126,7 @@ function DescriptionsPanel({ dirName, versionDir, title, helpText, fields, blank
       if (res.ok) {
         setResult({ ok: true, path: res.path });
         setData({ ...data, exists: true });
+        setSavedText(renderLinksMarkdown(data, columns, fieldKeys));
       } else {
         setResult({ ok: false, error: res.error || 'Save failed' });
       }
@@ -118,6 +136,16 @@ function DescriptionsPanel({ dirName, versionDir, title, helpText, fields, blank
       setSaving(false);
     }
   };
+
+  const previewText = renderLinksMarkdown(data, columns, fieldKeys);
+  const isDirty = savedText !== null && previewText !== savedText;
+  const canPermalink = data.exists && !isDirty;
+  const permalinkDisabledReason = !data.exists
+    ? 'Save this file first to generate a permalink.'
+    : isDirty
+      ? 'Save your changes first - permalinks need to match the saved file.'
+      : undefined;
+  const relativePath = `specifications/${dirName}/${versionDir}/Diagrams/${dirName.split('-')[0]}_${suffix}.md`;
 
   return (
     <div className="panel panel-white">
@@ -168,6 +196,24 @@ function DescriptionsPanel({ dirName, versionDir, title, helpText, fields, blank
           </div>
         )}
       </div>
+
+      <HighlightablePane
+        title={title}
+        text={previewText}
+        dirName={dirName}
+        versionDir={versionDir}
+        relativePath={relativePath}
+        canPermalink={canPermalink}
+        permalinkDisabledReason={permalinkDisabledReason}
+        repoInfo={repoInfo}
+        step={step}
+        paneKey={paneKey}
+        initialSelection={pendingSelection}
+        initialSelectionPane={pendingSelectionPane}
+        onInitialSelectionApplied={onInitialSelectionApplied}
+        onAddToIssueDraft={onAddToIssueDraft}
+        inline
+      />
     </div>
   );
 }
@@ -200,7 +246,10 @@ function idOptionsFrom(entries) {
 // TMFC005_FF_Descriptions.md, TMFC002_SID_Descriptions.md. Only meaningful
 // once a component directory exists on disk, so this is hidden while
 // creating a brand-new (not yet saved) component.
-export default function DescriptionsStep({ dirName, versionDir, eTOMs, functionalFrameworkFunctions }) {
+export default function DescriptionsStep({
+  dirName, versionDir, eTOMs, functionalFrameworkFunctions,
+  repoInfo, step, pendingSelection, pendingSelectionPane, onInitialSelectionApplied, onAddToIssueDraft,
+}) {
   if (!dirName || !versionDir) {
     return (
       <div className="panel panel-white">
@@ -212,6 +261,9 @@ export default function DescriptionsStep({ dirName, versionDir, eTOMs, functiona
 
   const etomOptions = idOptionsFrom(eTOMs);
   const ffOptions = idOptionsFrom(functionalFrameworkFunctions);
+
+  // Shared by all three panels below - forwarded straight from App.jsx.
+  const paneProps = { repoInfo, step, pendingSelection, pendingSelectionPane, onInitialSelectionApplied, onAddToIssueDraft };
 
   return (
     <>
@@ -230,6 +282,11 @@ export default function DescriptionsStep({ dirName, versionDir, eTOMs, functiona
           { key: 'documentName', label: 'Document Name', kind: 'text' },
           { key: 'alignmentNotes', label: 'Alignment Notes', kind: 'text' },
         ]}
+        // Matches server/index.js's DESCRIPTION_TYPES.etom exactly.
+        columns={['Identifier', 'Description', 'Version', 'Document Name', 'Alignment Notes']}
+        suffix="eTOM_Descriptions"
+        paneKey="etom-desc"
+        {...paneProps}
       />
 
       <DescriptionsPanel
@@ -249,6 +306,11 @@ export default function DescriptionsStep({ dirName, versionDir, eTOMs, functiona
           { key: 'documentName', label: 'Document Name', kind: 'text' },
           { key: 'alignmentNotes', label: 'Alignment Notes', kind: 'text' },
         ]}
+        // Matches server/index.js's DESCRIPTION_TYPES.ff exactly.
+        columns={['Function ID', 'Function Description', 'Aggregate Function Level 1', 'Aggregate Function Level 2', 'Version', 'Document Name', 'Alignment Notes']}
+        suffix="FF_Descriptions"
+        paneKey="ff-desc"
+        {...paneProps}
       />
 
       <DescriptionsPanel
@@ -267,6 +329,11 @@ export default function DescriptionsStep({ dirName, versionDir, eTOMs, functiona
           { key: 'sidAbeLevel2Definition', label: 'SID ABE L2 Definition', kind: 'textarea' },
           { key: 'source', label: 'Source', kind: 'text' },
         ]}
+        // Matches server/index.js's DESCRIPTION_TYPES.sid exactly.
+        columns={['SID ABE Level 1', 'SID ABE L1 Definition', 'SID ABE Level 2', 'SID ABE L2 Definition', 'Source']}
+        suffix="SID_Descriptions"
+        paneKey="sid-desc"
+        {...paneProps}
       />
     </>
   );

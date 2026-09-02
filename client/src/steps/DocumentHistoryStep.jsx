@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api.js';
+import HighlightablePane from '../HighlightablePane.jsx';
+import { renderSupplementMarkdown } from '../renderMarkdown.js';
 
 // Only the last few rows of the version/release history tables stay
 // editable - once an entry is superseded by newer ones it's frozen, matching
@@ -74,7 +76,10 @@ function HistoryTable({ columns, rows, editableCount, onChange }) {
 // ever written from this UI. Only meaningful once a component directory
 // exists on disk, so this is hidden while creating a brand-new (not yet
 // saved) component.
-export default function DocumentHistoryStep({ dirName, versionDir }) {
+export default function DocumentHistoryStep({
+  dirName, versionDir,
+  repoInfo, step, pendingSelection, pendingSelectionPane, onInitialSelectionApplied, onAddToIssueDraft,
+}) {
   const [data, setData] = useState(null);
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState(null); // { ok, error? }
@@ -82,14 +87,20 @@ export default function DocumentHistoryStep({ dirName, versionDir }) {
   // shows next to that card - there's one file (and one save call) behind
   // every card, but each card gets its own visible Save button.
   const [activeCard, setActiveCard] = useState(null);
+  // The exact markdown text of the most recently loaded-or-saved snapshot -
+  // see the same pattern in App.jsx (savedYamlText/isDirty) and
+  // LinksStep.jsx/DescriptionsStep.jsx (savedText/isDirty).
+  const [savedText, setSavedText] = useState(null);
 
   useEffect(() => {
     setData(null);
     setResult(null);
+    setSavedText(null);
     if (!dirName || !versionDir) return;
     api.componentSupplement(dirName, versionDir).then((d) => {
       if (d.exists) {
         setData({ ...d, justCreated: false });
+        setSavedText(renderSupplementMarkdown(d, d.meta));
         return;
       }
       // No Supplement.md yet for this component - seed it from the standard
@@ -102,12 +113,16 @@ export default function DocumentHistoryStep({ dirName, versionDir }) {
         acknowledgementsRows: d.acknowledgements.rows,
       };
       api.saveComponentSupplement(dirName, versionDir, payload)
-        .then((res) => setData({ ...d, exists: true, path: res.path, justCreated: true }))
+        .then((res) => {
+          setData({ ...d, exists: true, path: res.path, justCreated: true });
+          setSavedText(renderSupplementMarkdown(d, d.meta));
+        })
         .catch((err) => {
           setData(d);
           setResult({ ok: false, error: `Could not auto-create the Supplement file: ${err.message}` });
         });
     }).catch((err) => setResult({ ok: false, error: err.message }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dirName, versionDir]);
 
   if (!dirName || !versionDir) {
@@ -143,6 +158,7 @@ export default function DocumentHistoryStep({ dirName, versionDir }) {
       if (res.ok) {
         setResult({ ok: true });
         setData({ ...data, exists: true, path: res.path });
+        setSavedText(renderSupplementMarkdown(data, data.meta));
       } else {
         setResult({ ok: false, error: res.error || 'Save failed' });
       }
@@ -152,6 +168,21 @@ export default function DocumentHistoryStep({ dirName, versionDir }) {
       setSaving(false);
     }
   };
+
+  const previewText = renderSupplementMarkdown(data, data.meta);
+  const isDirty = savedText !== null && previewText !== savedText;
+  const canPermalink = data.exists && !isDirty;
+  const permalinkDisabledReason = !data.exists
+    ? 'Save this file first to generate a permalink.'
+    : isDirty
+      ? 'Save your changes first - permalinks need to match the saved file.'
+      : undefined;
+  // The Supplement filename isn't mechanically derivable (see the comment on
+  // SUPPLEMENT_TEMPLATE_BODY above) - only the server knows it, via the
+  // already-fetched absolute `data.path`.
+  const relativePath = data.path
+    ? `specifications/${dirName}/${versionDir}/Diagrams/${data.path.split(/[\\/]/).pop()}`
+    : null;
 
   const SaveRow = ({ cardKey, label }) => (
     <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -244,6 +275,24 @@ export default function DocumentHistoryStep({ dirName, versionDir }) {
           <SaveRow cardKey="acknowledgements" label="Save acknowledgements" />
         </div>
       </div>
+
+      <HighlightablePane
+        title="Supplement"
+        text={previewText}
+        dirName={dirName}
+        versionDir={versionDir}
+        relativePath={relativePath}
+        canPermalink={canPermalink}
+        permalinkDisabledReason={permalinkDisabledReason}
+        repoInfo={repoInfo}
+        step={step}
+        paneKey="supplement"
+        initialSelection={pendingSelection}
+        initialSelectionPane={pendingSelectionPane}
+        onInitialSelectionApplied={onInitialSelectionApplied}
+        onAddToIssueDraft={onAddToIssueDraft}
+        inline
+      />
     </div>
   );
 }

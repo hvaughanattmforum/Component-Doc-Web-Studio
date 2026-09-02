@@ -564,7 +564,26 @@ app.get('/api/git/branches', (req, res) => {
       .filter((b) => b !== 'origin/HEAD' && b !== 'origin')
       .map((b) => b.replace(/^origin\//, '')),
   )].sort();
-  res.json({ ok: true, current: runGit(root, ['rev-parse', '--abbrev-ref', 'HEAD']), branches });
+  const current = runGit(root, ['rev-parse', '--abbrev-ref', 'HEAD']);
+
+  // A branch already merged into the base branch represents finished work -
+  // hide it from "switch to a branch" (BranchSwitcher.jsx) so the picker
+  // only ever offers still-open branches to resume, not ones whose changes
+  // already landed. Best-effort: if origin/<SPEC_REPO_BRANCH> can't be
+  // resolved (not fetched, or this deployment uses a differently-named base
+  // branch), runGit returns null and nothing gets filtered rather than the
+  // whole route erroring. The current branch is always kept even if it
+  // happens to already be merged, so it's never missing from its own picker.
+  const mergedRaw = runGit(root, ['for-each-ref', '--format=%(refname:short)', `--merged=origin/${SPEC_REPO_BRANCH}`, 'refs/heads', 'refs/remotes/origin']) || '';
+  const merged = new Set(
+    mergedRaw.split('\n')
+      .map((b) => b.trim())
+      .filter(Boolean)
+      .map((b) => b.replace(/^origin\//, '')),
+  );
+  const unmergedBranches = branches.filter((b) => b === current || !merged.has(b));
+
+  res.json({ ok: true, current, branches: unmergedBranches });
 });
 
 // Switches this request's resolved repo root to a different branch. Refuses
@@ -1745,6 +1764,34 @@ async function commitAndOpenPR(req, { message, prTitle }) {
 
   return { committed: true, prUrl: req.session.prUrl, prNumber: req.session.prNumber, branch: result.branch };
 }
+
+// Files a GitHub issue against the repo currently being edited (same remote
+// commitAndOpenPR opens PRs against) - used by the Live YAML pane's
+// "highlight rows -> permalink -> issue" flow on the client. Independent of
+// any git working-tree state (no commit/push involved), so it just needs the
+// signed-in user's token and the repo identity.
+app.post('/api/github/issue', async (req, res) => {
+  if (!req.session.user) return res.status(401).json({ ok: false, error: 'Not signed in. Sign in with GitHub first.' });
+  const { title, body } = req.body;
+  if (!title || typeof title !== 'string' || !title.trim()) {
+    return res.status(400).json({ ok: false, error: 'title is required' });
+  }
+  if (body !== undefined && body !== null && typeof body !== 'string') {
+    return res.status(400).json({ ok: false, error: 'body must be a string' });
+  }
+  try {
+    const root = resolveRepoRoot(req);
+    const identity = repoOwnerAndName(runGit(root, ['remote', 'get-url', 'origin']));
+    if (!identity) return res.status(500).json({ ok: false, error: 'Could not determine the GitHub repo for this workspace.' });
+    const issue = await githubApiRequest(req.session.user.accessToken, 'POST', `/repos/${identity.owner}/${identity.repo}/issues`, {
+      title: title.trim(),
+      body: body || '',
+    });
+    res.json({ ok: true, issueUrl: issue.html_url, issueNumber: issue.number });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
 
 app.post('/api/save', async (req, res) => {
   try {

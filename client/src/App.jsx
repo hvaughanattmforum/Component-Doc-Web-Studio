@@ -15,9 +15,16 @@ import { CommonComponentSidOwnerStep } from './steps/CommonPatternsStep.jsx';
 import SetupGuide from './SetupGuide.jsx';
 import HelpButton from './HelpButton.jsx';
 import BranchSwitcher from './BranchSwitcher.jsx';
+import HighlightablePane from './HighlightablePane.jsx';
+import CreateIssuePanel from './CreateIssuePanel.jsx';
 import { stateFromComponent } from './parseComponent.js';
 
 const STEPS = ['Metadata', 'Links', 'Descriptions', 'Exposed APIs', 'Dependent APIs', 'Events', 'Compare Changes', 'Review & Save', 'Document History', 'SID Owner'];
+
+// Shared with the "is this the same content as what's on disk" check below -
+// must stay identical to whatever ReviewStep.jsx dumps YAML with, since
+// that's the snapshot `original` is compared against.
+const YAML_OPTS = { sortKeys: false, lineWidth: -1, noArrayIndent: true };
 
 // Which file each step edits: most steps build up `state` and only write it
 // to the component's main YAML when Review & Save is used, while Links,
@@ -71,6 +78,24 @@ export default function App() {
   const [apiCatalogError, setApiCatalogError] = useState(null);
   const [repoInfo, setRepoInfo] = useState(null);
   const [authUser, setAuthUser] = useState(undefined); // undefined = loading, null = signed out
+  // Permalinks the user has highlighted from any HighlightablePane (the Live
+  // YAML pane, or one of the five hand-edited .md files' own preview panes)
+  // and queued up to reference in one GitHub issue - see
+  // HighlightablePane.jsx/CreateIssuePanel.jsx.
+  const [issueDraft, setIssueDraft] = useState([]);
+  // A row range carried in from a permalink URL
+  // (?open=&version=&step=&pane=&lines=), consumed once by whichever pane's
+  // paneKey matches `pendingSelectionPane` to seed its selection - see the
+  // effect below and HighlightablePane's initialSelectionPane prop.
+  const [pendingSelection, setPendingSelection] = useState(null);
+  const [pendingSelectionPane, setPendingSelectionPane] = useState(null);
+  // The exact YAML text of the most recently loaded-or-saved snapshot of the
+  // open component, for the isDirty check below - deliberately NOT compared
+  // against `original` directly (buildComponent/stateFromComponent aren't
+  // guaranteed to round-trip byte-for-byte - see parseComponent.js's `raw`
+  // fields), only ever against another call to the same dump pipeline, so a
+  // freshly loaded/saved component always compares equal to itself.
+  const [savedYamlText, setSavedYamlText] = useState(null);
 
   const refreshRepoInfo = () => api.health().then(setRepoInfo).catch(() => setRepoInfo({ ok: false }));
 
@@ -100,6 +125,7 @@ export default function App() {
   const startCreate = () => {
     setOriginal(null);
     setOriginalLocation(null);
+    setSavedYamlText(null);
     setState(blankState());
     api.nextId().then((r) => setState((s) => ({ ...s, id: r.id }))).catch(() => {});
     setMode('new');
@@ -107,11 +133,28 @@ export default function App() {
   };
 
   const startEdit = ({ component, dirName, versionDir, fileName }) => {
+    const newState = stateFromComponent(component);
     setOriginal(component);
     setOriginalLocation({ dirName, versionDir, fileName });
-    setState(stateFromComponent(component));
+    // Computed the same way previewYamlText below will compute it on the
+    // next render (buildComponent(newState, component)), so it's guaranteed
+    // to compare equal - see the savedYamlText comment above.
+    setSavedYamlText(yaml.dump(buildComponent(newState, component), YAML_OPTS));
+    setState(newState);
     setMode('edit');
     setStep(0);
+  };
+
+  // Called by ReviewStep after a successful save, so a permalink copied
+  // right after saving reflects the just-saved location/content rather than
+  // the stale one from when this component was first opened - fixes
+  // permalinks silently pointing at the old version folder after a
+  // version-bump save (originalLocation), and re-enables permalinks/GitHub
+  // links that isDirty had disabled for unsaved edits (savedYamlText).
+  const onComponentSaved = ({ dirName, versionDir, fileName, component, yamlText }) => {
+    setOriginalLocation({ dirName, versionDir, fileName });
+    setOriginal(component);
+    setSavedYamlText(yamlText);
   };
 
   const backToStart = () => {
@@ -119,13 +162,68 @@ export default function App() {
     setStep(0);
   };
 
+  // Opens a permalink copied from any pane's selection toolbar
+  // (?open=<dirName>&version=<versionDir>&step=<n>&pane=<paneKey>&lines=<start>-<end>)
+  // - waits for sign-in to resolve, and only fires while at the start screen
+  // so it never hijacks a wizard already in progress. `pane` says which
+  // HighlightablePane instance should claim pendingSelection once it's
+  // mounted (only one pane is ever the YAML pane, but a step like
+  // Descriptions renders three of its own) - see
+  // HighlightablePane.jsx's initialSelectionPane prop.
+  useEffect(() => {
+    if (!authUser || mode !== null) return;
+    const params = new URLSearchParams(window.location.search);
+    const open = params.get('open');
+    if (!open) return;
+    const version = params.get('version') || undefined;
+    const stepParam = parseInt(params.get('step'), 10);
+    const pane = params.get('pane');
+    const linesMatch = (params.get('lines') || '').match(/^(\d+)-(\d+)$/);
+
+    api.component(open, version).then((r) => {
+      startEdit({ component: r.component, dirName: r.dirName, versionDir: r.versionDir, fileName: r.fileName });
+      if (!Number.isNaN(stepParam)) setStep(Math.min(STEPS.length - 1, Math.max(0, stepParam)));
+      if (linesMatch) {
+        setPendingSelection({ start: parseInt(linesMatch[1], 10), end: parseInt(linesMatch[2], 10) });
+        setPendingSelectionPane(pane);
+      }
+      window.history.replaceState({}, '', window.location.pathname);
+    }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authUser, mode]);
+
   // Live preview shown persistently in the right-hand pane while a wizard is
   // in progress - read-only, purely a mirror of buildComponent(state,
   // original) (the same function ReviewStep uses for the real save/validate
   // calls), so it can never drift from what those actions would actually do.
   const previewYamlText = mode !== null
-    ? yaml.dump(buildComponent(state, original), { sortKeys: false, lineWidth: -1, noArrayIndent: true })
+    ? yaml.dump(buildComponent(state, original), YAML_OPTS)
     : '';
+
+  // Whether the live buffer has diverged from the last loaded-or-saved
+  // snapshot (savedYamlText, kept in sync by startEdit/onComponentSaved
+  // above) - a permalink's line numbers only mean anything if they match
+  // what's actually on disk/GitHub, so the pane below disables both
+  // copy-link buttons while this is true.
+  const isDirty = mode === 'edit' && savedYamlText !== null && previewYamlText !== savedYamlText;
+
+  // Formerly computed inside YamlPane.jsx itself before it was generalized
+  // into HighlightablePane.jsx (now shared with the five hand-edited .md
+  // files' own preview panes) - each caller now works out its own
+  // "is there really a saved file to permalink to" condition.
+  const yamlCanPermalink = mode === 'edit' && Boolean(originalLocation) && !isDirty;
+  const yamlPermalinkDisabledReason = mode !== 'edit' || !originalLocation
+    ? 'Save this component first to generate a permalink.'
+    : isDirty
+      ? 'Save your changes first - permalinks need to match the saved file.'
+      : undefined;
+  const yamlRelativePath = originalLocation
+    ? `specifications/${originalLocation.dirName}/${originalLocation.versionDir}/${originalLocation.fileName}`
+    : null;
+
+  // Shared by every HighlightablePane on the page (the YAML pane and any of
+  // the five .md-file preview panes) so they all feed the same issue draft.
+  const addToIssueDraft = (entry) => setIssueDraft((d) => [...d, { ...entry, id: crypto.randomUUID() }]);
 
   return (
     <div className="app">
@@ -141,6 +239,12 @@ export default function App() {
               <button onClick={signOut}>Sign out</button>
             </span>
           )}
+          <CreateIssuePanel
+            draft={issueDraft}
+            onRemove={(id) => setIssueDraft((d) => d.filter((e) => e.id !== id))}
+            onClear={() => setIssueDraft([])}
+            defaultTitle={state.id ? `${state.id}: review needed` : 'Review needed'}
+          />
           <HelpButton />
         </div>
       </div>
@@ -155,7 +259,14 @@ export default function App() {
           {repoInfo.git.branch && (
             <>
               {' '}on branch{' '}
-              {authUser ? <BranchSwitcher currentBranch={repoInfo.git.branch} /> : <code>{repoInfo.git.branch}</code>}
+              {authUser ? (
+                <BranchSwitcher
+                  currentBranch={repoInfo.git.branch}
+                  repoInfo={repoInfo}
+                  hasOpenWizard={mode !== null}
+                  onGoToReviewStep={() => { setView('wizard'); setStep(STEPS.indexOf('Review & Save')); }}
+                />
+              ) : <code>{repoInfo.git.branch}</code>}
             </>
           )}
         </p>
@@ -250,7 +361,18 @@ export default function App() {
               />
             )}
             {step === 1 && (
-              <LinksStep dirName={originalLocation?.dirName} versionDir={originalLocation?.versionDir} eTOMs={state.eTOMs} SIDs={state.SIDs} />
+              <LinksStep
+                dirName={originalLocation?.dirName}
+                versionDir={originalLocation?.versionDir}
+                eTOMs={state.eTOMs}
+                SIDs={state.SIDs}
+                repoInfo={repoInfo}
+                step={step}
+                pendingSelection={pendingSelection}
+                pendingSelectionPane={pendingSelectionPane}
+                onInitialSelectionApplied={() => setPendingSelection(null)}
+                onAddToIssueDraft={addToIssueDraft}
+              />
             )}
             {step === 2 && (
               <DescriptionsStep
@@ -258,6 +380,12 @@ export default function App() {
                 versionDir={originalLocation?.versionDir}
                 eTOMs={state.eTOMs}
                 functionalFrameworkFunctions={state.functionalFrameworkFunctions}
+                repoInfo={repoInfo}
+                step={step}
+                pendingSelection={pendingSelection}
+                pendingSelectionPane={pendingSelectionPane}
+                onInitialSelectionApplied={() => setPendingSelection(null)}
+                onAddToIssueDraft={addToIssueDraft}
               />
             )}
             {step === 3 && (
@@ -285,10 +413,26 @@ export default function App() {
               <DiffStep state={state} original={original} />
             )}
             {step === 7 && (
-              <ReviewStep state={state} original={original} originalLocation={originalLocation} mode={mode} />
+              <ReviewStep
+                state={state}
+                original={original}
+                originalLocation={originalLocation}
+                mode={mode}
+                onSaved={onComponentSaved}
+                onPushed={refreshRepoInfo}
+              />
             )}
             {step === 8 && (
-              <DocumentHistoryStep dirName={originalLocation?.dirName} versionDir={originalLocation?.versionDir} />
+              <DocumentHistoryStep
+                dirName={originalLocation?.dirName}
+                versionDir={originalLocation?.versionDir}
+                repoInfo={repoInfo}
+                step={step}
+                pendingSelection={pendingSelection}
+                pendingSelectionPane={pendingSelectionPane}
+                onInitialSelectionApplied={() => setPendingSelection(null)}
+                onAddToIssueDraft={addToIssueDraft}
+              />
             )}
             {step === 9 && <CommonComponentSidOwnerStep />}
 
@@ -299,10 +443,22 @@ export default function App() {
           </div>
 
           {step !== 6 && (
-            <div className="yaml-pane">
-              <div className="yaml-head"><b>Live YAML</b><span>read-only, updates as you edit</span></div>
-              <pre className="yaml-live">{previewYamlText}</pre>
-            </div>
+            <HighlightablePane
+              title="Live YAML"
+              text={previewYamlText}
+              dirName={originalLocation?.dirName}
+              versionDir={originalLocation?.versionDir}
+              relativePath={yamlRelativePath}
+              canPermalink={yamlCanPermalink}
+              permalinkDisabledReason={yamlPermalinkDisabledReason}
+              repoInfo={repoInfo}
+              step={step}
+              paneKey="yaml"
+              initialSelection={pendingSelection}
+              initialSelectionPane={pendingSelectionPane}
+              onInitialSelectionApplied={() => setPendingSelection(null)}
+              onAddToIssueDraft={addToIssueDraft}
+            />
           )}
         </div>
       )}
