@@ -422,32 +422,31 @@ input.locked {
 /* Sticky rather than statically positioned so it stays in view while
    scrolling through .main, which usually runs far taller than one viewport -
    without this, editing a field near the bottom of a long step scrolls the
-   YAML preview's head clean off the top of the page. Stays within its own
-   grid-stretched box height (matching .main's height), so it un-sticks once
-   scrolled past .main's end rather than floating over whatever comes next. */
+   pane(s) clean off the top of the page. Holds one or more .yaml-pane cards
+   (App.jsx's sidePanes - the single Live YAML pane on most steps, or
+   however many a Component Spec Document step has reported via
+   onPreviewReady - Descriptions reports up to three at once), each capped
+   at a share of the viewport rather than fighting for the whole thing. */
+.side-pane-stack {
+  position: sticky;
+  top: 20px;
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px 20px 20px 0;
+  min-width: 0;
+}
 .yaml-pane {
   background: var(--panel);
   display: flex;
   flex-direction: column;
   min-width: 0;
-  align-self: stretch;
-  position: sticky;
-  top: 20px;
-  max-height: calc(100vh - 40px);
-  border-radius: 0 10px 10px 0;
-}
-/* Used by HighlightablePane.jsx when embedded partway down a step's own
-   form (the five hand-edited .md files) instead of App.jsx's persistent
-   .shell third column - sticking to the viewport only makes sense for the
-   one pane that's meant to float alongside a whole wizard step. */
-.yaml-pane.yaml-pane-inline {
-  position: static;
-  max-height: none;
+  flex-shrink: 0;
   border: 1px solid var(--border);
   border-radius: 10px;
-  margin-top: 16px;
 }
-.yaml-pane-inline .yaml-live { max-height: 320px; }
 .yaml-head {
   padding: 12px 16px 8px;
   border-bottom: 1px solid var(--border);
@@ -541,12 +540,12 @@ input.locked {
   .shell { grid-template-columns: 1fr; }
   .rail, .main { border-right: none; border-bottom: 1px solid var(--border); }
   /* Stacked full-width rows rather than side-by-side columns, so floating
-     the YAML pane alongside .main no longer applies - and with nothing
+     the pane stack alongside .main no longer applies - and with nothing
      below it in the stack, a leftover sticky position would just pin it
      mid-page for no benefit. */
   .rail { border-radius: 10px 10px 0 0; }
   .main, .shell-no-yaml .main { border-radius: 0; }
-  .yaml-pane { position: static; max-height: none; border-radius: 0 0 10px 10px; }
+  .side-pane-stack { position: static; max-height: none; padding: 0 0 20px; }
   .yaml-live { max-height: 360px; }
 }
 

@@ -25,12 +25,10 @@ function parseGithubRemote(remoteUrl) {
 // applied by the pane whose `paneKey` matches the URL's `pane` param (see
 // initialSelectionPane/onInitialSelectionApplied, wired from App.jsx).
 //
-// `inline` switches between the sticky page-column layout (the YAML pane's
-// original home, App.jsx's .shell third column) and a plain bordered block
-// meant to sit inline within a step's own scrolling content (see
-// .yaml-pane-inline in index.css) - sticking to the viewport only makes
-// sense for the one pane that's meant to float alongside a whole wizard
-// step, not one embedded partway down a step's own form.
+// Always rendered inside App.jsx's .side-pane-stack (the .shell third
+// column) - either as the lone Live YAML pane, or as one of however many
+// panes a Component Spec Document step (Links/Descriptions/Document
+// History) has reported via onPreviewReady (see App.jsx's sidePanes).
 export default function HighlightablePane({
   title,
   text,
@@ -46,7 +44,6 @@ export default function HighlightablePane({
   initialSelectionPane,
   onInitialSelectionApplied,
   onAddToIssueDraft,
-  inline = false,
 }) {
   // Markdown/YAML dumps always end with a trailing "\n", so a plain split()
   // would add one phantom empty "line" past the real end of the file - drop it.
@@ -135,7 +132,7 @@ export default function HighlightablePane({
   };
 
   return (
-    <div className={`yaml-pane ${inline ? 'yaml-pane-inline' : ''}`}>
+    <div className="yaml-pane">
       <div className="yaml-head"><b>{title}</b><span>read-only, updates as you edit</span></div>
 
       {range && (

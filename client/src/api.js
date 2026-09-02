@@ -80,14 +80,6 @@ export const api = {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ...payload, version: versionDir }),
   }).then((res) => res.json().then((body) => ({ status: res.status, ...body }))),
-  // Repo-root-level (not per-component) common architectural pattern links -
-  // see docs/Common_Links/ in the target repo.
-  commonComponentSidOwnerLinks: () => fetch(`${BASE}/common-component-sid-owner-links`).then(json),
-  saveCommonComponentSidOwnerLinks: (payload) => fetch(`${BASE}/common-component-sid-owner-links`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  }).then((res) => res.json().then((body) => ({ status: res.status, ...body }))),
   componentSupplement: (dirName, versionDir) => fetch(`${BASE}/component/${encodeURIComponent(dirName)}/supplement?version=${encodeURIComponent(versionDir)}`).then(json),
   // payload: { jiraBody, furtherBody, versionHistoryRows, releaseHistoryRows, acknowledgementsRows }
   saveComponentSupplement: (dirName, versionDir, payload) => fetch(`${BASE}/component/${encodeURIComponent(dirName)}/supplement`, {

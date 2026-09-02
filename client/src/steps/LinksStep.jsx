@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api.js';
-import HighlightablePane from '../HighlightablePane.jsx';
 import { renderLinksMarkdown } from '../renderMarkdown.js';
 
 const ETOM_SID_DIRECTIONS = ['bidirectional', 'activity consumes', 'activity produces'];
@@ -104,7 +103,7 @@ function FieldInput({ field, value, onChange }) {
 // free text.
 function LinksPanel({
   dirName, versionDir, title, helpText, fields, blankRow, pairKeyFn, getApi, saveApi,
-  columns, suffix, paneKey, repoInfo, step, pendingSelection, pendingSelectionPane, onInitialSelectionApplied, onAddToIssueDraft,
+  columns, suffix, paneKey, onPreviewReady,
 }) {
   const [data, setData] = useState(null); // { exists, heading, notesBefore, notesAfter, links }
   const [saving, setSaving] = useState(false);
@@ -149,6 +148,34 @@ function LinksPanel({
     }).catch((err) => setResult({ ok: false, error: err.message }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dirName, versionDir]);
+
+  // Computed even while data is still null (loading, or no component saved
+  // yet) so this can sit before the early-return guards below, alongside
+  // every other hook - see the reporting effect right after.
+  const previewText = data ? renderLinksMarkdown(data, columns, fieldKeys) : '';
+  const isDirty = Boolean(data) && savedText !== null && previewText !== savedText;
+  const canPermalink = Boolean(data) && data.exists && !isDirty;
+  const permalinkDisabledReason = !data || !data.exists
+    ? 'Save this file first to generate a permalink.'
+    : isDirty
+      ? 'Save your changes first - permalinks need to match the saved file.'
+      : undefined;
+  const relativePath = dirName && versionDir
+    ? `specifications/${dirName}/${versionDir}/Diagrams/${dirName.split('-')[0]}_${suffix}.md`
+    : null;
+
+  // Reports this table's live markdown preview up to App.jsx, which renders
+  // it in the right-hand pane (see HighlightablePane.jsx/App.jsx's
+  // sidePanes) instead of this component rendering its own pane inline -
+  // lets several of these (Descriptions renders three) share that one
+  // column. Skips reporting (and clears any previous report) until there's
+  // real data to show; clears on unmount so switching away from this step
+  // doesn't leave a stale pane behind.
+  useEffect(() => {
+    if (!data) { onPreviewReady?.(paneKey, null); return undefined; }
+    onPreviewReady?.(paneKey, { title, text: previewText, dirName, versionDir, relativePath, canPermalink, permalinkDisabledReason });
+    return () => onPreviewReady?.(paneKey, null);
+  }, [paneKey, data, title, previewText, dirName, versionDir, relativePath, canPermalink, permalinkDisabledReason, onPreviewReady]);
 
   if (!dirName || !versionDir) {
     return (
@@ -210,16 +237,6 @@ function LinksPanel({
     }
   };
 
-  const previewText = renderLinksMarkdown(data, columns, fieldKeys);
-  const isDirty = savedText !== null && previewText !== savedText;
-  const canPermalink = data.exists && !isDirty;
-  const permalinkDisabledReason = !data.exists
-    ? 'Save this file first to generate a permalink.'
-    : isDirty
-      ? 'Save your changes first - permalinks need to match the saved file.'
-      : undefined;
-  const relativePath = `specifications/${dirName}/${versionDir}/Diagrams/${dirName.split('-')[0]}_${suffix}.md`;
-
   return (
     <div className="panel panel-white">
       <h3 style={{ marginTop: 0 }}>{title} <span className="hint">{data.heading}{data.justCreated ? ' — file just created' : ''}</span></h3>
@@ -271,24 +288,6 @@ function LinksPanel({
           </div>
         )}
       </div>
-
-      <HighlightablePane
-        title={title}
-        text={previewText}
-        dirName={dirName}
-        versionDir={versionDir}
-        relativePath={relativePath}
-        canPermalink={canPermalink}
-        permalinkDisabledReason={permalinkDisabledReason}
-        repoInfo={repoInfo}
-        step={step}
-        paneKey={paneKey}
-        initialSelection={pendingSelection}
-        initialSelectionPane={pendingSelectionPane}
-        onInitialSelectionApplied={onInitialSelectionApplied}
-        onAddToIssueDraft={onAddToIssueDraft}
-        inline
-      />
     </div>
   );
 }
@@ -310,10 +309,7 @@ function unorderedPairKey(a, b) {
 // "eTOM L2 - SID ABEs links" diagram. Only meaningful once a component
 // directory exists on disk, so this is hidden while creating a brand-new
 // (not yet saved) component.
-export default function LinksStep({
-  dirName, versionDir, eTOMs, SIDs,
-  repoInfo, step, pendingSelection, pendingSelectionPane, onInitialSelectionApplied, onAddToIssueDraft,
-}) {
+export default function LinksStep({ dirName, versionDir, eTOMs, SIDs, onPreviewReady }) {
   if (!dirName || !versionDir) {
     return (
       <div className="panel panel-white">
@@ -327,7 +323,7 @@ export default function LinksStep({
     <LinksPanel
       dirName={dirName}
       versionDir={versionDir}
-      title={<>eTOM&ndash;SID links</>}
+      title="eTOM–SID links"
       helpText="These links are to ensure that the SID eTOM links diagram is drawn correctly in the specification document, and do not form part of the specification as such."
       getApi={api.componentLinks}
       saveApi={api.saveComponentLinks}
@@ -346,12 +342,7 @@ export default function LinksStep({
       columns={['eTOM activity', 'SID ABE', 'Direction', 'YAML eTOM', 'YAML SID']}
       suffix="eTOM_SID_Links"
       paneKey="links"
-      repoInfo={repoInfo}
-      step={step}
-      pendingSelection={pendingSelection}
-      pendingSelectionPane={pendingSelectionPane}
-      onInitialSelectionApplied={onInitialSelectionApplied}
-      onAddToIssueDraft={onAddToIssueDraft}
+      onPreviewReady={onPreviewReady}
     />
   );
 }
