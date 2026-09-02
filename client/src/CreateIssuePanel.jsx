@@ -1,14 +1,20 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { api } from './api.js';
 
-function defaultBodyFor(draft) {
-  return draft.map((entry) => {
+// `description` (the "What needs doing?" field) always leads the body - it
+// becomes part of the issue's original content in the same POST that
+// creates it, never a separate comment (GitHub issues have exactly one
+// body, set at creation; a comment would need a second API call after the
+// fact, for no benefit here since the issue doesn't exist yet).
+function defaultBodyFor(draft, description) {
+  const entries = draft.map((entry) => {
     const header = entry.start === entry.end ? `Line ${entry.start}` : `Lines ${entry.start}-${entry.end}`;
     const links = [entry.appLink && `[Open in Studio](${entry.appLink})`, entry.githubLink && `[View on GitHub](${entry.githubLink})`]
       .filter(Boolean)
       .join(' · ');
     return `**${header}**${links ? ` - ${links}` : ''}\n\`\`\`yaml\n${entry.snippet}\n\`\`\``;
   }).join('\n\n');
+  return description.trim() ? `${description.trim()}\n\n---\n\n${entries}` : entries;
 }
 
 // Collects permalinks added from YamlPane's selection toolbar (see
@@ -18,6 +24,7 @@ function defaultBodyFor(draft) {
 export default function CreateIssuePanel({ draft, onRemove, onClear, defaultTitle }) {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState(defaultTitle);
+  const [description, setDescription] = useState('');
   const [body, setBody] = useState('');
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
@@ -28,14 +35,18 @@ export default function CreateIssuePanel({ draft, onRemove, onClear, defaultTitl
   // "seed until touched" pattern for both, so switching to a different
   // component (title) or adding another highlighted snippet (body) keeps
   // reflecting that, right up until the user starts typing their own text.
+  // Body's regeneration also picks up `description` (the free-text "what
+  // needs doing" field, which has no default of its own to seed from - it's
+  // pure user input), so typing there flows straight into the body preview
+  // without needing its own edited-tracking flag.
   const [titleEdited, setTitleEdited] = useState(false);
   const [bodyEdited, setBodyEdited] = useState(false);
   useEffect(() => {
     if (!titleEdited) setTitle(defaultTitle);
   }, [defaultTitle, titleEdited]);
   useEffect(() => {
-    if (!bodyEdited) setBody(defaultBodyFor(draft));
-  }, [draft, bodyEdited]);
+    if (!bodyEdited) setBody(defaultBodyFor(draft, description));
+  }, [draft, description, bodyEdited]);
   useEffect(() => {
     if (!open) return undefined;
     const handleOutsideClick = (e) => {
@@ -60,6 +71,7 @@ export default function CreateIssuePanel({ draft, onRemove, onClear, defaultTitl
       setResult({ ok: true, issueUrl: r.issueUrl, issueNumber: r.issueNumber });
       onClear();
       setTitleEdited(false);
+      setDescription('');
       setBodyEdited(false);
     } catch (err) {
       setResult({ ok: false, error: err.message });
@@ -85,6 +97,15 @@ export default function CreateIssuePanel({ draft, onRemove, onClear, defaultTitl
           <label>
             Title
             <input type="text" value={title} onChange={(e) => { setTitle(e.target.value); setTitleEdited(true); }} />
+          </label>
+          <label>
+            What needs doing? <span className="hint">goes at the top of the issue</span>
+            <textarea
+              rows={3}
+              placeholder="Describe what needs to change or be reviewed..."
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+            />
           </label>
           <label>
             Body
