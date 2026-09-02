@@ -189,7 +189,21 @@ const REPO_ROOT_SOURCE = process.env.REPO_ROOT
 // third...) branch side-by-side without disturbing whatever's already
 // checked out (and possibly uncommitted) in the main clone.
 function resolveRepoRoot(req) {
-  return req.session.activeRoot || req.workspaceDir || REPO_ROOT;
+  if (req.session.activeRoot) return req.session.activeRoot;
+  if (req.workspaceDir) return req.workspaceDir;
+  // req.workspaceDir is only set by the ensureWorkspace middleware, which
+  // deliberately skips PUBLIC_API_PATHS (/api/health, /api/me) so those stay
+  // callable pre-auth without cloning anything. That meant /api/health could
+  // never see an already-signed-in user's own workspace - it always fell
+  // straight through to REPO_ROOT (null in hosted/SPEC_REPO_URL mode), so
+  // the "Connected to... on branch..." banner (and the branch switcher
+  // behind it) silently never rendered for any hosted user, signed in or
+  // not. Falling back to the session's persisted workspace dir directly
+  // (once it exists - set by ensureWorkspace on this session's first
+  // non-public request) fixes that without giving /api/health the power to
+  // trigger a fresh clone itself.
+  if (req.session.workspaceDir && fs.existsSync(req.session.workspaceDir)) return req.session.workspaceDir;
+  return REPO_ROOT;
 }
 
 const specificationsDir = (root) => path.join(root, 'specifications');
