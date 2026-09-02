@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api.js';
+import HighlightablePane from '../HighlightablePane.jsx';
+import { renderLinksMarkdown } from '../renderMarkdown.js';
 
 const ETOM_SID_DIRECTIONS = ['bidirectional', 'activity consumes', 'activity produces'];
 
@@ -100,7 +102,10 @@ function FieldInput({ field, value, onChange }) {
 // One editable link table backing a Diagrams/<ID>_<suffix>.md file - the
 // eTOM-SID link table, with a constrained Direction dropdown instead of
 // free text.
-function LinksPanel({ dirName, versionDir, title, helpText, fields, blankRow, pairKeyFn, getApi, saveApi }) {
+function LinksPanel({
+  dirName, versionDir, title, helpText, fields, blankRow, pairKeyFn, getApi, saveApi,
+  columns, suffix, paneKey, repoInfo, step, pendingSelection, pendingSelectionPane, onInitialSelectionApplied, onAddToIssueDraft,
+}) {
   const [data, setData] = useState(null); // { exists, heading, notesBefore, notesAfter, links }
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState(null); // { ok, error? }
@@ -109,27 +114,40 @@ function LinksPanel({ dirName, versionDir, title, helpText, fields, blankRow, pa
   // file (and one save call) for the whole component, but each card gets
   // its own visible Save button and its own feedback next to it.
   const [activeRow, setActiveRow] = useState(null);
+  const fieldKeys = fields.map((f) => f.key);
+  // The exact markdown text of the most recently loaded-or-saved snapshot -
+  // compared against the live preview below to gate permalinks on "matches
+  // what's actually on disk/GitHub", same pattern as App.jsx's
+  // savedYamlText/isDirty for the main component YAML.
+  const [savedText, setSavedText] = useState(null);
 
   useEffect(() => {
     setData(null);
     setResult(null);
+    setSavedText(null);
     if (!dirName || !versionDir) return;
     getApi(dirName, versionDir).then((d) => {
       if (d.exists) {
         setData({ ...d, justCreated: false });
+        setSavedText(renderLinksMarkdown(d, columns, fieldKeys));
         return;
       }
       // No links file yet for this component - create an empty one on disk
       // right away instead of only writing one the first time "Save links"
       // is clicked, so every component that's been opened here has a file
       // in its Diagrams/ folder ready to fill in (or leave empty).
-      saveApi(dirName, versionDir, { heading: d.heading, notesBefore: '', notesAfter: '', links: [] })
-        .then(() => setData({ ...d, exists: true, justCreated: true }))
+      const seeded = { heading: d.heading, notesBefore: '', notesAfter: '', links: [] };
+      saveApi(dirName, versionDir, seeded)
+        .then(() => {
+          setData({ ...d, exists: true, justCreated: true });
+          setSavedText(renderLinksMarkdown(seeded, columns, fieldKeys));
+        })
         .catch((err) => {
           setData(d);
           setResult({ ok: false, error: `Could not auto-create the links file: ${err.message}` });
         });
     }).catch((err) => setResult({ ok: false, error: err.message }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dirName, versionDir]);
 
   if (!dirName || !versionDir) {
@@ -181,6 +199,7 @@ function LinksPanel({ dirName, versionDir, title, helpText, fields, blankRow, pa
       if (res.ok) {
         setResult({ ok: true, path: res.path });
         setData({ ...data, exists: true });
+        setSavedText(renderLinksMarkdown(data, columns, fieldKeys));
       } else {
         setResult({ ok: false, error: res.error || 'Save failed' });
       }
@@ -190,6 +209,16 @@ function LinksPanel({ dirName, versionDir, title, helpText, fields, blankRow, pa
       setSaving(false);
     }
   };
+
+  const previewText = renderLinksMarkdown(data, columns, fieldKeys);
+  const isDirty = savedText !== null && previewText !== savedText;
+  const canPermalink = data.exists && !isDirty;
+  const permalinkDisabledReason = !data.exists
+    ? 'Save this file first to generate a permalink.'
+    : isDirty
+      ? 'Save your changes first - permalinks need to match the saved file.'
+      : undefined;
+  const relativePath = `specifications/${dirName}/${versionDir}/Diagrams/${dirName.split('-')[0]}_${suffix}.md`;
 
   return (
     <div className="panel panel-white">
@@ -242,6 +271,24 @@ function LinksPanel({ dirName, versionDir, title, helpText, fields, blankRow, pa
           </div>
         )}
       </div>
+
+      <HighlightablePane
+        title={title}
+        text={previewText}
+        dirName={dirName}
+        versionDir={versionDir}
+        relativePath={relativePath}
+        canPermalink={canPermalink}
+        permalinkDisabledReason={permalinkDisabledReason}
+        repoInfo={repoInfo}
+        step={step}
+        paneKey={paneKey}
+        initialSelection={pendingSelection}
+        initialSelectionPane={pendingSelectionPane}
+        onInitialSelectionApplied={onInitialSelectionApplied}
+        onAddToIssueDraft={onAddToIssueDraft}
+        inline
+      />
     </div>
   );
 }
@@ -263,7 +310,10 @@ function unorderedPairKey(a, b) {
 // "eTOM L2 - SID ABEs links" diagram. Only meaningful once a component
 // directory exists on disk, so this is hidden while creating a brand-new
 // (not yet saved) component.
-export default function LinksStep({ dirName, versionDir, eTOMs, SIDs }) {
+export default function LinksStep({
+  dirName, versionDir, eTOMs, SIDs,
+  repoInfo, step, pendingSelection, pendingSelectionPane, onInitialSelectionApplied, onAddToIssueDraft,
+}) {
   if (!dirName || !versionDir) {
     return (
       <div className="panel panel-white">
@@ -290,6 +340,18 @@ export default function LinksStep({ dirName, versionDir, eTOMs, SIDs }) {
         { key: 'yamlETOM', label: 'YAML eTOM', kind: 'multiselect', options: eTOMs, hint: 'from the eTOMs picker on the Metadata tab' },
         { key: 'yamlSID', label: 'YAML SID', kind: 'multiselect', options: SIDs, hint: 'from the SIDs picker on the Metadata tab' },
       ]}
+      // Matches server/index.js's LINK_TYPES.etomSid exactly (columns are
+      // the markdown table's header row - distinct from the fields[].label
+      // strings above, which are this form's own field labels).
+      columns={['eTOM activity', 'SID ABE', 'Direction', 'YAML eTOM', 'YAML SID']}
+      suffix="eTOM_SID_Links"
+      paneKey="links"
+      repoInfo={repoInfo}
+      step={step}
+      pendingSelection={pendingSelection}
+      pendingSelectionPane={pendingSelectionPane}
+      onInitialSelectionApplied={onInitialSelectionApplied}
+      onAddToIssueDraft={onAddToIssueDraft}
     />
   );
 }

@@ -111,4 +111,9 @@ export const api = {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   }).then((res) => res.json().then((body) => ({ status: res.status, ...body }))),
+  createGithubIssue: (payload) => fetch(`${BASE}/github/issue`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }).then(json),
 };

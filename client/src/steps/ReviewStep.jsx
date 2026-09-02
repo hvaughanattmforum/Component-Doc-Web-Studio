@@ -3,7 +3,7 @@ import yaml from 'js-yaml';
 import { api } from '../api.js';
 import { buildComponent, fileNamesFor, versionDirFor } from '../buildComponent.js';
 
-export default function ReviewStep({ state, original, originalLocation, mode }) {
+export default function ReviewStep({ state, original, originalLocation, mode, onSaved, onPushed }) {
   const [validation, setValidation] = useState(null);
   const [saveResult, setSaveResult] = useState(null);
   const [pushResult, setPushResult] = useState(null);
@@ -74,7 +74,16 @@ export default function ReviewStep({ state, original, originalLocation, mode }) 
     try {
       const result = await api.save({ component, dirName, versionDir, fileName, force: force || (mode === 'edit' && !isNewVersion) });
       setSaveResult(result);
-      if (result.ok) { setValidation({ valid: true, errors: [] }); setLastSavedYamlText(yamlText); }
+      if (result.ok) {
+        setValidation({ valid: true, errors: [] });
+        setLastSavedYamlText(yamlText);
+        // Lets App.jsx keep originalLocation/original/its own dirty-check
+        // snapshot in sync with what was actually just written to disk -
+        // otherwise a permalink copied afterward can point at a stale
+        // version folder (after a version-bump save) or stay disabled as
+        // "unsaved" even though this save just landed.
+        onSaved?.({ dirName, versionDir, fileName, component, yamlText });
+      }
     } catch (err) {
       setSaveResult({ ok: false, error: err.message });
     } finally {
@@ -112,6 +121,12 @@ export default function ReviewStep({ state, original, originalLocation, mode }) 
       // next push requires the whole save-then-confirm sequence again
       // rather than firing again against content that's already been sent.
       if (result.ok && result.committed) { setLastSavedYamlText(null); setConfirmed(false); }
+      // The server's working tree only actually moves onto the pushed
+      // branch as part of this push - refresh App.jsx's repoInfo so the
+      // Live YAML pane's "Copy GitHub link" stops pointing at whatever
+      // branch was checked out before (e.g. main), and starts pointing at
+      // the branch the content actually landed on.
+      if (result.ok) onPushed?.();
     } catch (err) {
       setPushResult({ ok: false, error: err.message });
     } finally {
