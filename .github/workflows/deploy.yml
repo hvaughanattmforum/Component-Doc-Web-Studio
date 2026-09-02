@@ -40,46 +40,68 @@ jobs:
 
       - name: Deploy to ECS Express Mode
         run: |
-          aws ecs update-service \
-            --cluster "${{ vars.ECS_CLUSTER }}" \
-            --service "${{ vars.ECS_SERVICE }}" \
-            --force-new-deployment
-
           # `aws ecs wait services-stable` expects the service to settle back
           # down to exactly one deployment/service-revision - but Express
           # Mode's blue/green model deliberately keeps the previous revision
           # listed (at requestedTaskCount 0) for instant rollback rather than
           # removing it, so that condition never becomes true and the waiter
           # always eventually times out ("Max attempts exceeded") even once
-          # the new revision is genuinely healthy and already serving traffic
-          # - confirmed by a run that failed this exact wait while the site
-          # was already up and correct. Poll for the actual signal instead:
-          # the currently-active revision (requestedTaskCount > 0 - the old
-          # one gets scaled to 0 as part of the swap) has caught up to its
-          # own requested count with nothing left pending. Same 40x15s=10min
-          # budget the waiter used, so a genuinely stuck deployment still
-          # fails in the same timeframe as before.
+          # the new revision is genuinely healthy and already serving traffic.
+          #
+          # A first replacement (counting "the currently-active revision has
+          # caught up to its own requested count") was itself wrong: right
+          # after force-new-deployment returns, the OLD deployment is still
+          # the only one with requestedTaskCount > 0 (it hasn't been scaled
+          # to 0 yet) and is already stable from before this run even
+          # started - so that check passed instantly on iteration 1, before
+          # the NEW deployment had done anything, confirmed by
+          # PR #27's run (33644218836): it exited in ~1.5s reporting
+          # requested=1 running=1 pending=0 for deployment
+          # ecs-svc/2539439739407835678 (the pre-existing one, rolloutState
+          # already COMPLETED beforehand), while the real new deployment
+          # ecs-svc/2521429614593444404 sat at desiredCount 0, rolloutState
+          # IN_PROGRESS, in that same update-service response - i.e. it
+          # declared success without the new revision doing anything, and
+          # the site kept serving the old build.
+          #
+          # Correct fix: `update-service` names its own new deployment in
+          # its response (status PRIMARY) - track that exact deployment id
+          # and poll until ITS rolloutState reaches COMPLETED. No ambiguity
+          # about which deployment is "active" during the swap window.
+          UPDATE_OUTPUT=$(aws ecs update-service \
+            --cluster "${{ vars.ECS_CLUSTER }}" \
+            --service "${{ vars.ECS_SERVICE }}" \
+            --force-new-deployment \
+            --output json)
+
+          DEPLOYMENT_ID=$(echo "$UPDATE_OUTPUT" | jq -r '.service.deployments[] | select(.status=="PRIMARY") | .id')
+          if [ -z "$DEPLOYMENT_ID" ]; then
+            echo "::error::Could not find the new PRIMARY deployment id in the update-service response."
+            exit 1
+          fi
+          echo "Waiting for deployment $DEPLOYMENT_ID to complete..."
+
+          # Same 40x15s=10min budget the original waiter used, so a
+          # genuinely stuck deployment still fails in the same timeframe.
           for i in $(seq 1 40); do
-            ACTIVE=$(aws ecs describe-services \
+            DEPLOYMENT=$(aws ecs describe-services \
               --cluster "${{ vars.ECS_CLUSTER }}" \
               --services "${{ vars.ECS_SERVICE }}" \
-              --output json | jq -c '[.services[0].currentServiceRevisions[] | select(.requestedTaskCount > 0)]')
-            COUNT=$(echo "$ACTIVE" | jq 'length')
-            if [ "$COUNT" = "1" ]; then
-              REQUESTED=$(echo "$ACTIVE" | jq -r '.[0].requestedTaskCount')
-              RUNNING=$(echo "$ACTIVE" | jq -r '.[0].runningTaskCount')
-              PENDING=$(echo "$ACTIVE" | jq -r '.[0].pendingTaskCount')
-              echo "Active revision: requested=$REQUESTED running=$RUNNING pending=$PENDING"
-              if [ "$PENDING" = "0" ] && [ "$RUNNING" = "$REQUESTED" ]; then
-                echo "Deployment is stable."
-                exit 0
-              fi
-            else
-              echo "$COUNT active revisions right now (swap still in progress)."
+              --output json | jq -c --arg id "$DEPLOYMENT_ID" '.services[0].deployments[] | select(.id == $id)')
+            ROLLOUT=$(echo "$DEPLOYMENT" | jq -r '.rolloutState // "UNKNOWN"')
+            REASON=$(echo "$DEPLOYMENT" | jq -r '.rolloutStateReason // "no reason given"')
+            echo "rolloutState=$ROLLOUT ($REASON)"
+            if [ "$ROLLOUT" = "COMPLETED" ]; then
+              echo "Deployment is stable."
+              exit 0
+            fi
+            if [ "$ROLLOUT" = "FAILED" ]; then
+              echo "::error::Deployment $DEPLOYMENT_ID failed: $REASON"
+              exit 1
             fi
             sleep 15
           done
-          echo "::error::New service revision never became stable within 10 minutes."
+          echo "::error::Deployment $DEPLOYMENT_ID never completed within 10 minutes."
           exit 1
 
       - name: Re-point custom domain rule to the now-active target group
