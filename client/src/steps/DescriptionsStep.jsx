@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api.js';
-import HighlightablePane from '../HighlightablePane.jsx';
 import { renderLinksMarkdown } from '../renderMarkdown.js';
 
 function FieldInput({ field, value, onChange }) {
@@ -31,7 +30,7 @@ function FieldInput({ field, value, onChange }) {
 // relying on the fields[0] default.
 function DescriptionsPanel({
   dirName, versionDir, title, helpText, fields, blankRow, getApi, saveApi, dupKeyFn,
-  columns, suffix, paneKey, repoInfo, step, pendingSelection, pendingSelectionPane, onInitialSelectionApplied, onAddToIssueDraft,
+  columns, suffix, paneKey, onPreviewReady,
 }) {
   const [data, setData] = useState(null); // { exists, heading, notesBefore, notesAfter, links }
   const [saving, setSaving] = useState(false);
@@ -70,6 +69,31 @@ function DescriptionsPanel({
     }).catch((err) => setResult({ ok: false, error: err.message }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dirName, versionDir]);
+
+  // Computed even while data is still null so this can sit before the
+  // early-return guards below, alongside every other hook - see the
+  // reporting effect right after.
+  const previewText = data ? renderLinksMarkdown(data, columns, fieldKeys) : '';
+  const isDirty = Boolean(data) && savedText !== null && previewText !== savedText;
+  const canPermalink = Boolean(data) && data.exists && !isDirty;
+  const permalinkDisabledReason = !data || !data.exists
+    ? 'Save this file first to generate a permalink.'
+    : isDirty
+      ? 'Save your changes first - permalinks need to match the saved file.'
+      : undefined;
+  const relativePath = dirName && versionDir
+    ? `specifications/${dirName}/${versionDir}/Diagrams/${dirName.split('-')[0]}_${suffix}.md`
+    : null;
+
+  // Reports this table's live markdown preview up to App.jsx, which renders
+  // it in the right-hand pane alongside the other two Descriptions tables
+  // (see HighlightablePane.jsx/App.jsx's sidePanes) instead of this
+  // component rendering its own pane inline.
+  useEffect(() => {
+    if (!data) { onPreviewReady?.(paneKey, null); return undefined; }
+    onPreviewReady?.(paneKey, { title, text: previewText, dirName, versionDir, relativePath, canPermalink, permalinkDisabledReason });
+    return () => onPreviewReady?.(paneKey, null);
+  }, [paneKey, data, title, previewText, dirName, versionDir, relativePath, canPermalink, permalinkDisabledReason, onPreviewReady]);
 
   if (!dirName || !versionDir) {
     return (
@@ -137,16 +161,6 @@ function DescriptionsPanel({
     }
   };
 
-  const previewText = renderLinksMarkdown(data, columns, fieldKeys);
-  const isDirty = savedText !== null && previewText !== savedText;
-  const canPermalink = data.exists && !isDirty;
-  const permalinkDisabledReason = !data.exists
-    ? 'Save this file first to generate a permalink.'
-    : isDirty
-      ? 'Save your changes first - permalinks need to match the saved file.'
-      : undefined;
-  const relativePath = `specifications/${dirName}/${versionDir}/Diagrams/${dirName.split('-')[0]}_${suffix}.md`;
-
   return (
     <div className="panel panel-white">
       <h3 style={{ marginTop: 0 }}>{title} <span className="hint">{data.heading}{data.justCreated ? ' — file just created' : ''}</span></h3>
@@ -196,24 +210,6 @@ function DescriptionsPanel({
           </div>
         )}
       </div>
-
-      <HighlightablePane
-        title={title}
-        text={previewText}
-        dirName={dirName}
-        versionDir={versionDir}
-        relativePath={relativePath}
-        canPermalink={canPermalink}
-        permalinkDisabledReason={permalinkDisabledReason}
-        repoInfo={repoInfo}
-        step={step}
-        paneKey={paneKey}
-        initialSelection={pendingSelection}
-        initialSelectionPane={pendingSelectionPane}
-        onInitialSelectionApplied={onInitialSelectionApplied}
-        onAddToIssueDraft={onAddToIssueDraft}
-        inline
-      />
     </div>
   );
 }
@@ -246,10 +242,7 @@ function idOptionsFrom(entries) {
 // TMFC005_FF_Descriptions.md, TMFC002_SID_Descriptions.md. Only meaningful
 // once a component directory exists on disk, so this is hidden while
 // creating a brand-new (not yet saved) component.
-export default function DescriptionsStep({
-  dirName, versionDir, eTOMs, functionalFrameworkFunctions,
-  repoInfo, step, pendingSelection, pendingSelectionPane, onInitialSelectionApplied, onAddToIssueDraft,
-}) {
+export default function DescriptionsStep({ dirName, versionDir, eTOMs, functionalFrameworkFunctions, onPreviewReady }) {
   if (!dirName || !versionDir) {
     return (
       <div className="panel panel-white">
@@ -261,9 +254,6 @@ export default function DescriptionsStep({
 
   const etomOptions = idOptionsFrom(eTOMs);
   const ffOptions = idOptionsFrom(functionalFrameworkFunctions);
-
-  // Shared by all three panels below - forwarded straight from App.jsx.
-  const paneProps = { repoInfo, step, pendingSelection, pendingSelectionPane, onInitialSelectionApplied, onAddToIssueDraft };
 
   return (
     <>
@@ -286,7 +276,7 @@ export default function DescriptionsStep({
         columns={['Identifier', 'Description', 'Version', 'Document Name', 'Alignment Notes']}
         suffix="eTOM_Descriptions"
         paneKey="etom-desc"
-        {...paneProps}
+        onPreviewReady={onPreviewReady}
       />
 
       <DescriptionsPanel
@@ -310,7 +300,7 @@ export default function DescriptionsStep({
         columns={['Function ID', 'Function Description', 'Aggregate Function Level 1', 'Aggregate Function Level 2', 'Version', 'Document Name', 'Alignment Notes']}
         suffix="FF_Descriptions"
         paneKey="ff-desc"
-        {...paneProps}
+        onPreviewReady={onPreviewReady}
       />
 
       <DescriptionsPanel
@@ -333,7 +323,7 @@ export default function DescriptionsStep({
         columns={['SID ABE Level 1', 'SID ABE L1 Definition', 'SID ABE Level 2', 'SID ABE L2 Definition', 'Source']}
         suffix="SID_Descriptions"
         paneKey="sid-desc"
-        {...paneProps}
+        onPreviewReady={onPreviewReady}
       />
     </>
   );

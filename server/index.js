@@ -209,11 +209,6 @@ function resolveRepoRoot(req) {
 const specificationsDir = (root) => path.join(root, 'specifications');
 const schemaPath = (root) => path.join(root, 'ci', 'component.schema.json');
 const apiIndexPath = (root) => path.join(root, 'apiIndex.json');
-// Cross-component "common architectural patterns" link tables - unlike the
-// per-component Diagrams/*.md files below, these two live once at the repo
-// root (docs/Common_Links/) and consolidate links that span multiple
-// components' own diagrams (see registerCommonLinksRoutes further down).
-const commonLinksDir = (root) => path.join(root, 'docs', 'Common_Links');
 
 // Each signed-in user gets their own throwaway clone of the spec repo
 // (rather than everyone sharing REPO_ROOT above), so concurrent users never
@@ -1126,59 +1121,6 @@ function registerLinksRoutes(type) {
 }
 
 Object.values(LINK_TYPES).forEach(registerLinksRoutes);
-
-// Consolidated, repo-root-level link tables under docs/Common_Links/ - same
-// "GFM table + free-text notes" shape as the per-component link files above,
-// so parsing/rendering is reused, but there's exactly one file per type
-// (not one per component). A cell referencing a pre-v26.0 SID version is
-// flagged as a warning client-side (see CommonPatternsStep.jsx) rather than
-// enforced here - older versions are still legitimate, so the server accepts
-// whatever the client sends.
-const COMMON_LINK_TYPES = {
-  commonComponentSidOwner: {
-    route: 'common-component-sid-owner-links',
-    fileName: 'Common_Component_SID_owner_Links.md',
-    columns: ['Depicted under component', 'SID element as present in the YAML file'],
-    fields: ['component', 'sidElement'],
-    defaultHeading: 'Common Component–SID Links',
-  },
-};
-
-function registerCommonLinksRoutes(type) {
-  app.get(`/api/${type.route}`, (req, res) => {
-    const filePath = path.join(commonLinksDir(resolveRepoRoot(req)), type.fileName);
-    if (!fs.existsSync(filePath)) {
-      return res.json({ ok: true, exists: false, heading: type.defaultHeading, notesBefore: '', notesAfter: '', links: [] });
-    }
-    try {
-      const parsed = parseLinksMarkdown(fs.readFileSync(filePath, 'utf8'), type.fields, type.defaultHeading);
-      res.json({ ok: true, exists: true, ...parsed });
-    } catch (err) {
-      res.status(500).json({ ok: false, error: err.message });
-    }
-  });
-
-  app.post(`/api/${type.route}`, (req, res) => {
-    const { heading, notesBefore, notesAfter, links } = req.body;
-    if (!Array.isArray(links)) {
-      return res.status(400).json({ ok: false, error: 'links must be an array' });
-    }
-    try {
-      const filePath = path.join(commonLinksDir(resolveRepoRoot(req)), type.fileName);
-      fs.mkdirSync(path.dirname(filePath), { recursive: true });
-      fs.writeFileSync(
-        filePath,
-        renderLinksMarkdown({ heading: heading || type.defaultHeading, notesBefore, notesAfter, links }, type.columns, type.fields),
-        'utf8',
-      );
-      res.json({ ok: true, path: filePath });
-    } catch (err) {
-      res.status(500).json({ ok: false, error: err.message });
-    }
-  });
-}
-
-Object.values(COMMON_LINK_TYPES).forEach(registerCommonLinksRoutes);
 
 // Description lookup files (Diagrams/<ID>_eTOM_Descriptions.md,
 // Diagrams/<ID>_FF_Descriptions.md, Diagrams/<ID>_SID_Descriptions.md) hold

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import yaml from 'js-yaml';
 import { api } from './api.js';
 import { buildComponent } from './buildComponent.js';
@@ -11,7 +11,6 @@ import DiffStep from './steps/DiffStep.jsx';
 import ReviewStep from './steps/ReviewStep.jsx';
 import DocumentHistoryStep from './steps/DocumentHistoryStep.jsx';
 import DescriptionsStep from './steps/DescriptionsStep.jsx';
-import { CommonComponentSidOwnerStep } from './steps/CommonPatternsStep.jsx';
 import SetupGuide from './SetupGuide.jsx';
 import HelpButton from './HelpButton.jsx';
 import BranchSwitcher from './BranchSwitcher.jsx';
@@ -19,7 +18,7 @@ import HighlightablePane from './HighlightablePane.jsx';
 import CreateIssuePanel from './CreateIssuePanel.jsx';
 import { stateFromComponent } from './parseComponent.js';
 
-const STEPS = ['Metadata', 'Links', 'Descriptions', 'Exposed APIs', 'Dependent APIs', 'Events', 'Compare Changes', 'Review & Save', 'Document History', 'SID Owner'];
+const STEPS = ['Metadata', 'Links', 'Descriptions', 'Exposed APIs', 'Dependent APIs', 'Events', 'Compare Changes', 'Review & Save', 'Document History'];
 
 // Shared with the "is this the same content as what's on disk" check below -
 // must stay identical to whatever ReviewStep.jsx dumps YAML with, since
@@ -32,18 +31,14 @@ const YAML_OPTS = { sortKeys: false, lineWidth: -1, noArrayIndent: true };
 // under that component's Diagrams/ folder (see LinksStep.jsx /
 // DescriptionsStep.jsx / DocumentHistoryStep.jsx) independently of the
 // YAML/Save flow. Grouped here purely for the step pills' display below -
-// doesn't affect step order or navigation.
+// doesn't affect step order or navigation. Also used to decide what the
+// right-hand pane shows (see sidePanes below) - steps in the second group
+// show that step's own live .md preview(s) there instead of the Live YAML.
 const STEP_GROUPS = [
   { label: 'Component YAML', indices: [0, 3, 4, 5, 6, 7] },
   { label: 'Component Spec Document', indices: [1, 2, 8] },
 ];
-
-// Unlike the two groups above, this step edits a repo-root-level file under
-// docs/Common_Links/ (see CommonPatternsStep.jsx) rather than anything
-// scoped to the component currently open - kept as its own group, rendered
-// on its own row below Component Spec Document, so it reads as a separate
-// concern rather than a pill squeezed into either existing box.
-const COMMON_PATTERNS_GROUP = { label: 'Common architectural patterns', indices: [9] };
+const MD_PREVIEW_STEPS = new Set(STEP_GROUPS[1].indices);
 
 function blankState() {
   return {
@@ -96,6 +91,31 @@ export default function App() {
   // fields), only ever against another call to the same dump pipeline, so a
   // freshly loaded/saved component always compares equal to itself.
   const [savedYamlText, setSavedYamlText] = useState(null);
+  // Live preview info reported up by whichever of Links/Descriptions/
+  // Document History is currently mounted (see onPreviewReady below) -
+  // keyed by paneKey so Descriptions' three tables can all report at once.
+  // Rendered in the right-hand pane in place of the Live YAML pane for
+  // those steps (see sidePanes below) - populated/cleared entirely by the
+  // step components themselves, so App.jsx never needs to know their
+  // internal load/save state.
+  const [stepPanes, setStepPanes] = useState({});
+
+  // Stable identity (empty dep array - setStepPanes from useState is itself
+  // stable) so passing this down doesn't re-trigger a step panel's own
+  // reporting effect just because App.jsx re-rendered for an unrelated
+  // reason - see the effect in LinksStep.jsx/DescriptionsStep.jsx/
+  // DocumentHistoryStep.jsx that calls this.
+  const handlePreviewReady = useCallback((paneKey, info) => {
+    setStepPanes((prev) => {
+      if (!info) {
+        if (!(paneKey in prev)) return prev;
+        const next = { ...prev };
+        delete next[paneKey];
+        return next;
+      }
+      return { ...prev, [paneKey]: info };
+    });
+  }, []);
 
   const refreshRepoInfo = () => api.health().then(setRepoInfo).catch(() => setRepoInfo({ ok: false }));
 
@@ -232,6 +252,23 @@ export default function App() {
   // the five .md-file preview panes) so they all feed the same issue draft.
   const addToIssueDraft = (entry) => setIssueDraft((d) => [...d, { ...entry, id: crypto.randomUUID() }]);
 
+  // What the right-hand pane shows: on a Component Spec Document step
+  // (Links/Descriptions/Document History), whatever those steps have
+  // reported via onPreviewReady (Descriptions reports up to three at once);
+  // everywhere else, the single persistent Live YAML pane.
+  const sidePanes = MD_PREVIEW_STEPS.has(step)
+    ? Object.entries(stepPanes).map(([paneKey, info]) => ({ paneKey, ...info }))
+    : [{
+      paneKey: 'yaml',
+      title: 'Live YAML',
+      text: previewYamlText,
+      dirName: originalLocation?.dirName,
+      versionDir: originalLocation?.versionDir,
+      relativePath: yamlRelativePath,
+      canPermalink: yamlCanPermalink,
+      permalinkDisabledReason: yamlPermalinkDisabledReason,
+    }];
+
   return (
     <div className="app">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
@@ -330,18 +367,6 @@ export default function App() {
                 ))}
               </div>
             ))}
-            <div className="rail-group" key={COMMON_PATTERNS_GROUP.label}>
-              <div className="step-group-label">{COMMON_PATTERNS_GROUP.label}</div>
-              {COMMON_PATTERNS_GROUP.indices.map((i, posIdx) => (
-                <button
-                  key={STEPS[i]}
-                  className={`rail-item ${i === step ? 'active' : ''}`}
-                  onClick={() => setStep(i)}
-                >
-                  <span className="n">{STEP_GROUPS.length + 1}.{posIdx + 1}</span> {STEPS[i]}
-                </button>
-              ))}
-            </div>
           </div>
 
           <div className="main">
@@ -373,12 +398,7 @@ export default function App() {
                 versionDir={originalLocation?.versionDir}
                 eTOMs={state.eTOMs}
                 SIDs={state.SIDs}
-                repoInfo={repoInfo}
-                step={step}
-                pendingSelection={pendingSelection}
-                pendingSelectionPane={pendingSelectionPane}
-                onInitialSelectionApplied={() => setPendingSelection(null)}
-                onAddToIssueDraft={addToIssueDraft}
+                onPreviewReady={handlePreviewReady}
               />
             )}
             {step === 2 && (
@@ -387,12 +407,7 @@ export default function App() {
                 versionDir={originalLocation?.versionDir}
                 eTOMs={state.eTOMs}
                 functionalFrameworkFunctions={state.functionalFrameworkFunctions}
-                repoInfo={repoInfo}
-                step={step}
-                pendingSelection={pendingSelection}
-                pendingSelectionPane={pendingSelectionPane}
-                onInitialSelectionApplied={() => setPendingSelection(null)}
-                onAddToIssueDraft={addToIssueDraft}
+                onPreviewReady={handlePreviewReady}
               />
             )}
             {step === 3 && (
@@ -433,15 +448,9 @@ export default function App() {
               <DocumentHistoryStep
                 dirName={originalLocation?.dirName}
                 versionDir={originalLocation?.versionDir}
-                repoInfo={repoInfo}
-                step={step}
-                pendingSelection={pendingSelection}
-                pendingSelectionPane={pendingSelectionPane}
-                onInitialSelectionApplied={() => setPendingSelection(null)}
-                onAddToIssueDraft={addToIssueDraft}
+                onPreviewReady={handlePreviewReady}
               />
             )}
-            {step === 9 && <CommonComponentSidOwnerStep />}
 
             <div className="nav-buttons">
               <button onClick={() => setStep((s) => Math.max(0, s - 1))} disabled={step === 0}>Back</button>
@@ -450,22 +459,27 @@ export default function App() {
           </div>
 
           {step !== 6 && (
-            <HighlightablePane
-              title="Live YAML"
-              text={previewYamlText}
-              dirName={originalLocation?.dirName}
-              versionDir={originalLocation?.versionDir}
-              relativePath={yamlRelativePath}
-              canPermalink={yamlCanPermalink}
-              permalinkDisabledReason={yamlPermalinkDisabledReason}
-              repoInfo={repoInfo}
-              step={step}
-              paneKey="yaml"
-              initialSelection={pendingSelection}
-              initialSelectionPane={pendingSelectionPane}
-              onInitialSelectionApplied={() => setPendingSelection(null)}
-              onAddToIssueDraft={addToIssueDraft}
-            />
+            <div className="side-pane-stack">
+              {sidePanes.map((pane) => (
+                <HighlightablePane
+                  key={pane.paneKey}
+                  title={pane.title}
+                  text={pane.text}
+                  dirName={pane.dirName}
+                  versionDir={pane.versionDir}
+                  relativePath={pane.relativePath}
+                  canPermalink={pane.canPermalink}
+                  permalinkDisabledReason={pane.permalinkDisabledReason}
+                  repoInfo={repoInfo}
+                  step={step}
+                  paneKey={pane.paneKey}
+                  initialSelection={pendingSelection}
+                  initialSelectionPane={pendingSelectionPane}
+                  onInitialSelectionApplied={() => setPendingSelection(null)}
+                  onAddToIssueDraft={addToIssueDraft}
+                />
+              ))}
+            </div>
           )}
         </div>
       )}

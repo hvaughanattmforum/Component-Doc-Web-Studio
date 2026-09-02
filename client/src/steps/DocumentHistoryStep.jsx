@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api.js';
-import HighlightablePane from '../HighlightablePane.jsx';
 import { renderSupplementMarkdown } from '../renderMarkdown.js';
 
 // Only the last few rows of the version/release history tables stay
@@ -76,10 +75,7 @@ function HistoryTable({ columns, rows, editableCount, onChange }) {
 // ever written from this UI. Only meaningful once a component directory
 // exists on disk, so this is hidden while creating a brand-new (not yet
 // saved) component.
-export default function DocumentHistoryStep({
-  dirName, versionDir,
-  repoInfo, step, pendingSelection, pendingSelectionPane, onInitialSelectionApplied, onAddToIssueDraft,
-}) {
+export default function DocumentHistoryStep({ dirName, versionDir, onPreviewReady }) {
   const [data, setData] = useState(null);
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState(null); // { ok, error? }
@@ -125,6 +121,33 @@ export default function DocumentHistoryStep({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dirName, versionDir]);
 
+  // Computed even while data is still null so this can sit before the
+  // early-return guards below, alongside every other hook - see the
+  // reporting effect right after.
+  const previewText = data ? renderSupplementMarkdown(data, data.meta) : '';
+  const isDirty = Boolean(data) && savedText !== null && previewText !== savedText;
+  const canPermalink = Boolean(data) && data.exists && !isDirty;
+  const permalinkDisabledReason = !data || !data.exists
+    ? 'Save this file first to generate a permalink.'
+    : isDirty
+      ? 'Save your changes first - permalinks need to match the saved file.'
+      : undefined;
+  // The Supplement filename isn't mechanically derivable (see the comment on
+  // SUPPLEMENT_TEMPLATE_BODY in server/index.js) - only the server knows
+  // it, via the already-fetched absolute data.path.
+  const relativePath = data?.path
+    ? `specifications/${dirName}/${versionDir}/Diagrams/${data.path.split(/[\\/]/).pop()}`
+    : null;
+
+  // Reports the Supplement's live markdown preview up to App.jsx, which
+  // renders it in the right-hand pane (see HighlightablePane.jsx/App.jsx's
+  // sidePanes) instead of this component rendering its own pane inline.
+  useEffect(() => {
+    if (!data) { onPreviewReady?.('supplement', null); return undefined; }
+    onPreviewReady?.('supplement', { title: 'Supplement', text: previewText, dirName, versionDir, relativePath, canPermalink, permalinkDisabledReason });
+    return () => onPreviewReady?.('supplement', null);
+  }, [data, previewText, dirName, versionDir, relativePath, canPermalink, permalinkDisabledReason, onPreviewReady]);
+
   if (!dirName || !versionDir) {
     return (
       <div className="panel panel-white">
@@ -168,21 +191,6 @@ export default function DocumentHistoryStep({
       setSaving(false);
     }
   };
-
-  const previewText = renderSupplementMarkdown(data, data.meta);
-  const isDirty = savedText !== null && previewText !== savedText;
-  const canPermalink = data.exists && !isDirty;
-  const permalinkDisabledReason = !data.exists
-    ? 'Save this file first to generate a permalink.'
-    : isDirty
-      ? 'Save your changes first - permalinks need to match the saved file.'
-      : undefined;
-  // The Supplement filename isn't mechanically derivable (see the comment on
-  // SUPPLEMENT_TEMPLATE_BODY above) - only the server knows it, via the
-  // already-fetched absolute `data.path`.
-  const relativePath = data.path
-    ? `specifications/${dirName}/${versionDir}/Diagrams/${data.path.split(/[\\/]/).pop()}`
-    : null;
 
   const SaveRow = ({ cardKey, label }) => (
     <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -275,24 +283,6 @@ export default function DocumentHistoryStep({
           <SaveRow cardKey="acknowledgements" label="Save acknowledgements" />
         </div>
       </div>
-
-      <HighlightablePane
-        title="Supplement"
-        text={previewText}
-        dirName={dirName}
-        versionDir={versionDir}
-        relativePath={relativePath}
-        canPermalink={canPermalink}
-        permalinkDisabledReason={permalinkDisabledReason}
-        repoInfo={repoInfo}
-        step={step}
-        paneKey="supplement"
-        initialSelection={pendingSelection}
-        initialSelectionPane={pendingSelectionPane}
-        onInitialSelectionApplied={onInitialSelectionApplied}
-        onAddToIssueDraft={onAddToIssueDraft}
-        inline
-      />
     </div>
   );
 }
