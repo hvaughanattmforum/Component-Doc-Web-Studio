@@ -35,7 +35,7 @@ WORKDIR /app
 
 COPY server/package.json server/package-lock.json server/
 RUN npm --prefix server ci --omit=dev
-COPY server/index.js server/index.js
+COPY server server
 
 COPY --from=build /app/scripts ./scripts
 COPY --from=build /app/client/dist ./client/dist
