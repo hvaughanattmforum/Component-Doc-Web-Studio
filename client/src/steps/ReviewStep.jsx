@@ -109,7 +109,8 @@ export default function ReviewStep({ state, original, originalLocation, mode, on
   // Separate from Save above: Save only ever writes locally (to the active
   // worktree/workspace); this is the explicit, deliberate action that
   // actually commits and pushes those local changes to a feature branch on
-  // the real repo - no PR is opened here.
+  // the real repo and opens a PR for it (hosted mode) - the branch name is
+  // whatever was just confirmed above, never the auto-generated default.
   const runPush = async () => {
     setPushing(true);
     setPushResult(null);
@@ -136,7 +137,7 @@ export default function ReviewStep({ state, original, originalLocation, mode, on
 
   return (
     <div className="panel">
-      <h3 style={{ marginTop: 0 }}>Review &amp; save</h3>
+      <h3 style={{ marginTop: 0 }}>Review &amp; Save</h3>
       <div className="field">
         <label>{mode === 'edit' && !isNewVersion ? 'Will update' : 'Will be saved to'}</label>
         <code>specifications/{dirName}/{versionDir}/{fileName}</code>
@@ -186,10 +187,16 @@ export default function ReviewStep({ state, original, originalLocation, mode, on
       )}
 
       {pushResult && pushResult.ok && pushResult.committed && (
-        <div className="status-banner ok">Pushed to <code>{pushResult.branch}</code> on origin.</div>
+        <div className="status-banner ok">
+          Pushed to <code>{pushResult.branch}</code> on origin.
+          {pushResult.prUrl && <> — <a href={pushResult.prUrl} target="_blank" rel="noreferrer">view pull request</a></>}
+        </div>
       )}
       {pushResult && pushResult.ok && !pushResult.committed && (
-        <div className="status-banner ok">Nothing to push - no changes since the last push.</div>
+        <div className="status-banner ok">
+          Nothing to push - no changes since the last push.
+          {pushResult.prUrl && <> — <a href={pushResult.prUrl} target="_blank" rel="noreferrer">view pull request</a></>}
+        </div>
       )}
       {pushResult && !pushResult.ok && (
         <div className="status-banner error">{pushResult.error}</div>
