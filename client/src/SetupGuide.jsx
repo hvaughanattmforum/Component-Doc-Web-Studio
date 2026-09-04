@@ -210,7 +210,6 @@ export default function SetupGuide({ repoInfo, onFrameworksRegenerated }) {
               <>
                 <div><StatusDot ok={repoInfo.specificationsDirExists} /> specifications/ folder found</div>
                 <div><StatusDot ok={repoInfo.schemaExists} /> ci/component.schema.json found</div>
-                <div><StatusDot ok={repoInfo.apiIndexExists} /> apiIndex.json found</div>
               </>
             )}
             {repoInfo.git?.remote && (
