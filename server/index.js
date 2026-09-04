@@ -10,6 +10,7 @@ import { promisify } from 'util';
 import yaml from 'js-yaml';
 import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
+import { fetchS3ApiIndex } from './apiIndexSource.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -208,7 +209,6 @@ function resolveRepoRoot(req) {
 
 const specificationsDir = (root) => path.join(root, 'specifications');
 const schemaPath = (root) => path.join(root, 'ci', 'component.schema.json');
-const apiIndexPath = (root) => path.join(root, 'apiIndex.json');
 
 // Each signed-in user gets their own throwaway clone of the spec repo
 // (rather than everyone sharing REPO_ROOT above), so concurrent users never
@@ -541,7 +541,6 @@ app.get('/api/health', (req, res) => {
     // difference - see the specifications warning in the client's App.jsx.
     specificationsDirExists: root ? fs.existsSync(specificationsDir(root)) : null,
     schemaExists: root ? fs.existsSync(schemaPath(root)) : null,
-    apiIndexExists: root ? fs.existsSync(apiIndexPath(root)) : null,
     git: root ? getGitInfo(root) : { remoteUrl: null, remote: null, branch: null },
     frameworksDir: REFERENCE_DATA_DIR,
     frameworksDirSource: FRAMEWORKS_DIR_SOURCE,
@@ -847,7 +846,13 @@ app.get('/api/api-resources', async (req, res) => {
     if (!response.ok) {
       return res.status(502).json({ ok: false, error: `Fetching swagger failed: HTTP ${response.status}` });
     }
-    const doc = await response.json();
+    // Some catalog sources (e.g. the S3 index's OpenApiTable/Beta swagger
+    // assets) serve the spec as YAML rather than JSON. yaml.load parses
+    // both, but its default schema would resolve bare dates in the doc
+    // (e.g. an example value) into JS Date objects - JSON_SCHEMA sticks to
+    // JSON-compatible types only, matching what response.json() used to do.
+    const text = await response.text();
+    const doc = yaml.load(text, { schema: yaml.JSON_SCHEMA, json: true });
     const payload = {
       resources: parseSwaggerResources(doc),
       eventName: parseSwaggerEventName(doc),
@@ -861,15 +866,22 @@ app.get('/api/api-resources', async (req, res) => {
 });
 
 // TMF API catalog (id/version/name/swagger url) for the exposed/dependent API pickers.
-// Excludes TMFnnnE-suffixed entries - every one of those in apiIndex.json is
-// an "Asynchronous" event-driven variant of a regular API (confirmed by
-// name, e.g. "TMF620E ... Product Catalog Management API Asynchronous"),
-// and this app's exposed/dependent API pickers are for the synchronous REST
-// APIs a component conforms to - async APIs aren't a valid pick there.
-app.get('/api/apis', (req, res) => {
-  const indexPath = apiIndexPath(resolveRepoRoot(req));
-  if (!fs.existsSync(indexPath)) return res.json({ apis: [] });
-  const raw = JSON.parse(fs.readFileSync(indexPath, 'utf8'));
+// Excludes TMFnnnE-suffixed entries - every one of those in the source
+// catalog is an "Asynchronous" event-driven variant of a regular API
+// (confirmed by name, e.g. "TMF620E ... Product Catalog Management API
+// Asynchronous"), and this app's exposed/dependent API pickers are for the
+// synchronous REST APIs a component conforms to - async APIs aren't a valid
+// pick there.
+app.get('/api/apis', async (req, res) => {
+  // Always the public tmforum-open-api-table S3 index (see
+  // apiIndexSource.js) - a repo-local apiIndex.json is no longer read, so
+  // every deployment sees the same catalog without needing one committed.
+  let raw;
+  try {
+    raw = await fetchS3ApiIndex();
+  } catch (err) {
+    return res.json({ apis: [], apiIndexError: `Could not load the public API index: ${err.message}` });
+  }
   const apis = Object.entries(raw).map(([key, val]) => {
     const [id, versionRaw] = key.split('_v');
     return {
