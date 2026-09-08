@@ -19,7 +19,7 @@ function FieldInput({ field, value, onChange }) {
   return <input type="text" value={value} onChange={(e) => onChange(e.target.value)} />;
 }
 
-// One editable description table backing a Diagrams/<ID>_<suffix>.md file -
+// One editable description table backing a Diagrams/Source/<ID>_<suffix>.md file -
 // each row is keyed by a single identifier (an eTOM activity ID or a
 // Functional Framework function ID) by default, unlike the Links tab's
 // two-sided pairing, so duplicate detection here is just "this identifier
@@ -55,7 +55,7 @@ function DescriptionsPanel({
       }
       // No file yet for this component - create an empty one on disk right
       // away, matching the Links tab's behavior, so every opened component
-      // has a file in its Diagrams/ folder ready to fill in (or leave empty).
+      // has a file in its Diagrams/Source/ folder ready to fill in (or leave empty).
       const seeded = { heading: d.heading, notesBefore: '', notesAfter: '', links: [] };
       saveApi(dirName, versionDir, seeded)
         .then(() => {
@@ -82,7 +82,7 @@ function DescriptionsPanel({
       ? 'Save your changes first - permalinks need to match the saved file.'
       : undefined;
   const relativePath = dirName && versionDir
-    ? `specifications/${dirName}/${versionDir}/Diagrams/${dirName.split('-')[0]}_${suffix}.md`
+    ? `specifications/${dirName}/${versionDir}/Diagrams/Source/${dirName.split('-')[0]}_${suffix}.md`
     : null;
 
   // Reports this table's live markdown preview up to App.jsx, which renders
@@ -230,7 +230,7 @@ function idOptionsFrom(entries) {
 }
 
 // Editor for the three hand-maintained lookup tables under
-// specifications/<dirName>/Diagrams/ that hold descriptive prose the YAML
+// specifications/<dirName>/Diagrams/Source/ that hold descriptive prose the YAML
 // has no room for: each eTOM activity's own business description (section
 // 2.1), each Functional Framework function's own description plus its two
 // Aggregate Function Level columns (section 2.4) - both also carrying

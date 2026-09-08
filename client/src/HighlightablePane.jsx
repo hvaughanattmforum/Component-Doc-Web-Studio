@@ -12,7 +12,7 @@ function parseGithubRemote(remoteUrl) {
 // permalink (in-app and/or GitHub blob) or adding the range to the issue
 // draft (see CreateIssuePanel.jsx). Originally built as YamlPane.jsx for the
 // main component YAML only; generalized so the same mechanism covers the
-// five hand-edited Diagrams/*.md files too (Links, the three Descriptions
+// five hand-edited Diagrams/Source/*.md files too (Links, the three Descriptions
 // tables, and the Supplement) - each caller (App.jsx for the YAML, or
 // LinksStep.jsx/DescriptionsStep.jsx/DocumentHistoryStep.jsx for their own
 // file) supplies its own `text`, `relativePath` and `canPermalink`/

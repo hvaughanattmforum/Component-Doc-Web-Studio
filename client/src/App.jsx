@@ -28,7 +28,7 @@ const YAML_OPTS = { sortKeys: false, lineWidth: -1, noArrayIndent: true };
 // Which file each step edits: most steps build up `state` and only write it
 // to the component's main YAML when Review & Save is used, while Links,
 // Descriptions and Document History write straight to their own .md files
-// under that component's Diagrams/ folder (see LinksStep.jsx /
+// under that component's Diagrams/Source/ folder (see LinksStep.jsx /
 // DescriptionsStep.jsx / DocumentHistoryStep.jsx) independently of the
 // YAML/Save flow. Grouped here purely for the step pills' display below -
 // doesn't affect step order or navigation. Also used to decide what the
