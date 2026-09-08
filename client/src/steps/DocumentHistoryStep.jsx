@@ -65,7 +65,7 @@ function HistoryTable({ columns, rows, editableCount, onChange }) {
   );
 }
 
-// Editor for specifications/<dirName>/Diagrams/<ID>_<Name>_Supplement.md -
+// Editor for specifications/<dirName>/Diagrams/Source/<ID>_<Name>_Supplement.md -
 // replaces the old raw-markdown Supplement tab with a structured view, in
 // the same one-card-per-concern / per-card-Save style as the Links tab.
 // Chapter headings, the acknowledgements intro sentence, and table column
@@ -136,7 +136,7 @@ export default function DocumentHistoryStep({ dirName, versionDir, onPreviewRead
   // SUPPLEMENT_TEMPLATE_BODY in server/index.js) - only the server knows
   // it, via the already-fetched absolute data.path.
   const relativePath = data?.path
-    ? `specifications/${dirName}/${versionDir}/Diagrams/${data.path.split(/[\\/]/).pop()}`
+    ? `specifications/${dirName}/${versionDir}/Diagrams/Source/${data.path.split(/[\\/]/).pop()}`
     : null;
 
   // Reports the Supplement's live markdown preview up to App.jsx, which

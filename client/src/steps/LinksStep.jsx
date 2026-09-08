@@ -98,7 +98,7 @@ function FieldInput({ field, value, onChange }) {
   return <input type="text" value={value} onChange={(e) => onChange(e.target.value)} />;
 }
 
-// One editable link table backing a Diagrams/<ID>_<suffix>.md file - the
+// One editable link table backing a Diagrams/Source/<ID>_<suffix>.md file - the
 // eTOM-SID link table, with a constrained Direction dropdown instead of
 // free text.
 function LinksPanel({
@@ -134,7 +134,7 @@ function LinksPanel({
       // No links file yet for this component - create an empty one on disk
       // right away instead of only writing one the first time "Save links"
       // is clicked, so every component that's been opened here has a file
-      // in its Diagrams/ folder ready to fill in (or leave empty).
+      // in its Diagrams/Source/ folder ready to fill in (or leave empty).
       const seeded = { heading: d.heading, notesBefore: '', notesAfter: '', links: [] };
       saveApi(dirName, versionDir, seeded)
         .then(() => {
@@ -161,7 +161,7 @@ function LinksPanel({
       ? 'Save your changes first - permalinks need to match the saved file.'
       : undefined;
   const relativePath = dirName && versionDir
-    ? `specifications/${dirName}/${versionDir}/Diagrams/${dirName.split('-')[0]}_${suffix}.md`
+    ? `specifications/${dirName}/${versionDir}/Diagrams/Source/${dirName.split('-')[0]}_${suffix}.md`
     : null;
 
   // Reports this table's live markdown preview up to App.jsx, which renders
@@ -305,7 +305,7 @@ function unorderedPairKey(a, b) {
 }
 
 // Editor for the hand-maintained eTOM-SID link table under
-// specifications/<dirName>/Diagrams/ - the eTOM-SID cross-links backing the
+// specifications/<dirName>/Diagrams/Source/ - the eTOM-SID cross-links backing the
 // "eTOM L2 - SID ABEs links" diagram. Only meaningful once a component
 // directory exists on disk, so this is hidden while creating a brand-new
 // (not yet saved) component.

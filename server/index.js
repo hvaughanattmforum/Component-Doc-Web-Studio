@@ -998,19 +998,25 @@ app.get('/api/components', (req, res) => {
   res.json({ components });
 });
 
-// Link tables (specifications/<dirName>/Diagrams/<ID>_<suffix>.md) document
-// hand-maintained relationships the YAML alone can't express, transcribed by
-// hand from each component's original spec PDF: which eTOM activity
-// connects to which SID ABE (eTOM_SID_Links - the "eTOM L2 - SID ABEs links"
-// diagram). It's a plain GFM table with a title and free-text provenance
-// notes before/after, so parsing has to locate the table by its separator
-// row (`|---|---|...`) rather than by exact header wording, and cell values
-// that contain a literal `|` (the "YAML ..." columns pack multiple
-// pipe-delimited identifier parts into one cell) escape it as `\|` to avoid
-// being read as a column break.
+// Link tables (specifications/<dirName>/Diagrams/Source/<ID>_<suffix>.md)
+// document hand-maintained relationships the YAML alone can't express,
+// transcribed by hand from each component's original spec PDF: which eTOM
+// activity connects to which SID ABE (eTOM_SID_Links - the "eTOM L2 - SID
+// ABEs links" diagram). It's a plain GFM table with a title and free-text
+// provenance notes before/after, so parsing has to locate the table by its
+// separator row (`|---|---|...`) rather than by exact header wording, and
+// cell values that contain a literal `|` (the "YAML ..." columns pack
+// multiple pipe-delimited identifier parts into one cell) escape it as `\|`
+// to avoid being read as a column break.
+//
+// Diagrams/Source/ (not Diagrams/ directly) as of the TMForum-ODA-
+// Component_Development layout reorg: Diagrams/ itself now holds only
+// disposable build output (temp/) and the persisted main doc + docx
+// (docs/) - every hand-maintained lookup file this app edits lives in
+// Source/ alongside it.
 function linksFilePath(root, dirName, suffix, versionDir) {
   const id = dirName.split('-')[0];
-  return path.join(specificationsDir(root), dirName, versionDir, 'Diagrams', `${id}_${suffix}.md`);
+  return path.join(specificationsDir(root), dirName, versionDir, 'Diagrams', 'Source', `${id}_${suffix}.md`);
 }
 
 // Sentinel below stands in for escaped `\|` while splitting on the real column
@@ -1134,9 +1140,9 @@ function registerLinksRoutes(type) {
 
 Object.values(LINK_TYPES).forEach(registerLinksRoutes);
 
-// Description lookup files (Diagrams/<ID>_eTOM_Descriptions.md,
-// Diagrams/<ID>_FF_Descriptions.md, Diagrams/<ID>_SID_Descriptions.md) hold
-// prose the YAML has no room for: each eTOM activity's, or each Functional
+// Description lookup files (Diagrams/Source/<ID>_eTOM_Descriptions.md,
+// Diagrams/Source/<ID>_FF_Descriptions.md, Diagrams/Source/<ID>_SID_Descriptions.md)
+// hold prose the YAML has no room for: each eTOM activity's, or each Functional
 // Framework function's, own descriptive text (and, for FF, its two
 // Aggregate Function Level columns), plus three provenance columns -
 // Version, Document Name, Alignment Notes - recording which framework
@@ -1185,8 +1191,8 @@ const DESCRIPTION_TYPES = {
 
 Object.values(DESCRIPTION_TYPES).forEach(registerLinksRoutes);
 
-// The <ID>_<Name>_Supplement.md file (specifications/<dirName>/Diagrams/) is
-// the hand-curated tail of a component's specification - Jira references,
+// The <ID>_<Name>_Supplement.md file (specifications/<dirName>/Diagrams/Source/)
+// is the hand-curated tail of a component's specification - Jira references,
 // further resources, and the administrative appendix (document/release
 // history, acknowledgements). The component-specification-markdown skill
 // treats this file as a one-time-seeded, hand-maintained input it only ever
@@ -1439,10 +1445,10 @@ function defaultSupplementFileName(root, dirName, versionDir) {
 // comment above) so a legacy non-standard filename is still found rather
 // than treated as missing.
 function findSupplementFile(root, dirName, versionDir) {
-  const diagramsDir = path.join(specificationsDir(root), dirName, versionDir, 'Diagrams');
-  if (!fs.existsSync(diagramsDir)) return null;
-  const match = fs.readdirSync(diagramsDir).find((f) => f.endsWith('_Supplement.md'));
-  return match ? path.join(diagramsDir, match) : null;
+  const sourceDir = path.join(specificationsDir(root), dirName, versionDir, 'Diagrams', 'Source');
+  if (!fs.existsSync(sourceDir)) return null;
+  const match = fs.readdirSync(sourceDir).find((f) => f.endsWith('_Supplement.md'));
+  return match ? path.join(sourceDir, match) : null;
 }
 
 app.get('/api/component/:dirName/supplement', (req, res) => {
@@ -1491,7 +1497,7 @@ app.post('/api/component/:dirName/supplement', (req, res) => {
   if (resolved.error) return res.status(resolved.error.status).json({ ok: false, error: resolved.error.message });
   try {
     const filePath = findSupplementFile(root, dirName, resolved.versionDir)
-      || path.join(specificationsDir(root), dirName, resolved.versionDir, 'Diagrams', defaultSupplementFileName(root, dirName, resolved.versionDir));
+      || path.join(specificationsDir(root), dirName, resolved.versionDir, 'Diagrams', 'Source', defaultSupplementFileName(root, dirName, resolved.versionDir));
     const meta = readComponentMeta(root, dirName, resolved.versionDir);
     if (!meta || !meta.name || !meta.version) {
       return res.status(400).json({ ok: false, error: "Could not read this component's name/version from its YAML - save the Metadata tab first." });
