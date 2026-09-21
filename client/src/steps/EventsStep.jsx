@@ -6,14 +6,16 @@ import { matchCatalogEntry } from '../apiCatalogUtils.js';
 // exposes, so the event group name has to match one of the component's own
 // exposed APIs - e.g. TMF620's swagger titles itself "Product Catalog
 // Management", published as event name "ProductCatalogManagement". That
-// name, and the list of events available to publish, both come straight
-// from the API's own swagger (info.title and its /listener/* paths) rather
-// than being typed in or guessed. Keyed by id (not name) since id is the
-// exposed API's real identity - matches how exposedAPIs/dependentAPIs key
-// off `id` rather than the human-readable name.
-function useExposedApiEvents(exposedAPIs, apiCatalog) {
-  const [byId, setById] = useState({}); // { [apiId]: { name, events } }
-  const [loading, setLoading] = useState({}); // { [apiId]: true }
+// name comes straight from the API's own swagger (info.title) rather than
+// being typed in or guessed. Keyed by id (not name) since id is the exposed
+// API's real identity - matches how exposedAPIs/dependentAPIs key off `id`
+// rather than the human-readable name. Only resolves the name, not the
+// per-version event list - each specification version fetches its own event
+// list independently (see EventSpecVersionCard), since a later version of
+// the same event group can rename or add events.
+function useExposedApiEventNames(exposedAPIs, apiCatalog) {
+  const [byId, setById] = useState({}); // { [apiId]: name }
+  const [loading, setLoading] = useState({});
   const fetched = useRef(new Set());
 
   const ids = [...new Set(exposedAPIs.map((a) => (a.id || '').trim()).filter(Boolean))];
@@ -29,9 +31,7 @@ function useExposedApiEvents(exposedAPIs, apiCatalog) {
       setLoading((prev) => ({ ...prev, [id]: true }));
       api.apiResources(match.swagger)
         .then((result) => {
-          if (result.eventName) {
-            setById((prev) => ({ ...prev, [id]: { name: result.eventName, events: result.events || [] } }));
-          }
+          if (result.eventName) setById((prev) => ({ ...prev, [id]: result.eventName }));
         })
         .catch(() => {})
         .finally(() => setLoading((prev) => ({ ...prev, [id]: false })));
@@ -39,13 +39,10 @@ function useExposedApiEvents(exposedAPIs, apiCatalog) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, apiCatalog]);
 
-  const options = ids
-    .filter((id) => byId[id])
-    .map((id) => ({ id, name: byId[id].name }));
-  const eventsById = Object.fromEntries(options.map((o) => [o.id, byId[o.id].events]));
+  const options = ids.filter((id) => byId[id]).map((id) => ({ id, name: byId[id] }));
   const anyLoading = ids.some((id) => loading[id]);
 
-  return { options, byId, eventsById, anyLoading };
+  return { options, byId, anyLoading };
 }
 
 // Two even columns rather than a flex-wrap that reflows unpredictably with
@@ -68,8 +65,8 @@ function EventCheckboxGrid({ events, checked, onToggle }) {
 // back to the component's spec until Save is clicked, mirroring the
 // resource picker's Add/Edit-operations pattern rather than committing on
 // every click. Once saved, collapses to a read-only summary with an Edit
-// button to reopen it. Pass a `key` that changes whenever the underlying API/
-// event list changes (e.g. a different exposed API selected), so this
+// button to reopen it. Pass a `key` that changes whenever the underlying
+// event list changes (e.g. a different version's swagger loaded), so this
 // remounts with fresh state instead of carrying over a stale selection.
 function EventSelector({ events, selected, onSave }) {
   const [editing, setEditing] = useState(selected.length === 0);
@@ -79,10 +76,10 @@ function EventSelector({ events, selected, onSave }) {
     return <div className="hint">This API's swagger has no /listener event paths.</div>;
   }
   // Anything already selected but not in the fetched list (e.g. a legacy or
-  // hand-typed name from before this API had a swagger match) is still shown
-  // and stays checkable, so editing an existing component never silently
-  // drops or hides data - it's just not one of the API's currently-known
-  // events.
+  // hand-typed name from before this version had a swagger match) is still
+  // shown and stays checkable, so editing an existing component never
+  // silently drops or hides data - it's just not one of the version's
+  // currently-known events.
   const allEvents = [...events, ...selected.filter((r) => !events.includes(r))];
 
   const toggle = (ev) => setChecked((prev) => {
@@ -123,20 +120,20 @@ function EventSelector({ events, selected, onSave }) {
   );
 }
 
-function ManualResourceRows({ resources, onChange }) {
+function ManualEventNameRows({ events, onChange }) {
   const set = (i, value) => {
-    const next = resources.slice();
+    const next = events.slice();
     next[i] = value;
     onChange(next);
   };
-  const add = () => onChange([...resources, '']);
-  const remove = (i) => onChange(resources.filter((_, idx) => idx !== i));
+  const add = () => onChange([...events, '']);
+  const remove = (i) => onChange(events.filter((_, idx) => idx !== i));
 
   return (
     <div>
-      {resources.map((r, i) => (
+      {events.map((ev, i) => (
         <div className="row" key={i} style={{ marginBottom: 4 }}>
-          <input type="text" value={r} onChange={(e) => set(i, e.target.value)} placeholder="eventName" />
+          <input type="text" value={ev} onChange={(e) => set(i, e.target.value)} placeholder="eventName" />
           <button type="button" className="remove" onClick={() => remove(i)}>Remove</button>
         </div>
       ))}
@@ -145,8 +142,118 @@ function ManualResourceRows({ resources, onChange }) {
   );
 }
 
+const LOCKED_MESSAGE = 'If this needs changing, please delete and start again.';
+
+// One card per declared specification version of an event group - each
+// version manages its own event-name list independently, since a later
+// version of the underlying API can rename or add events (e.g. TMF652 v4
+// renamed several events published under v3). Mirrors ApiListStep.jsx's
+// SpecVersionCard/ResourcePicker pattern: a manual "Load" button fetches the
+// real swagger for that specific (id, version) pair rather than relying on
+// an always-on background fetch.
+function EventSpecVersionCard({ apiId, spec, apiCatalog, onChange, onRemove, removable }) {
+  const [events, setEvents] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  const match = matchCatalogEntry(apiCatalog, (apiId || '').trim(), spec.version);
+
+  const load = async () => {
+    if (!match) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await api.apiResources(match.swagger);
+      setEvents(result.events || []);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="card" style={{ background: 'var(--panel-alt, rgba(255,255,255,0.03))' }}>
+      <div className="row" style={{ alignItems: 'center' }}>
+        <div className="field">
+          <label>Version</label>
+          <input
+            type="text"
+            value={spec.version}
+            onChange={(e) => { onChange('version', e.target.value); setEvents(null); }}
+            placeholder="4"
+          />
+        </div>
+        <div className="field">
+          <label>API type</label>
+          <input type="text" value={spec.apiType} onChange={(e) => onChange('apiType', e.target.value)} />
+        </div>
+        {removable && <button type="button" className="ghost" onClick={onRemove}>Remove version</button>}
+      </div>
+      <div className="field">
+        <label>Events <span className="hint">from the API's real swagger spec</span></label>
+        {!match && (
+          <div className="hint">
+            No catalog entry found for {apiId || '(no API selected)'}{spec.version ? ` v${spec.version}` : ''} - add event names manually below.
+          </div>
+        )}
+        {match && !events && (
+          <button type="button" onClick={load} disabled={loading}>
+            {loading ? 'Loading spec...' : `Load events from ${match.id} v${match.version} spec`}
+          </button>
+        )}
+        {error && <div className="status-banner error" style={{ marginTop: 8 }}>{error}</div>}
+        {events && (
+          <EventSelector
+            key={`${match?.id}::${spec.version}`}
+            events={events}
+            selected={spec.events}
+            onSave={(evs) => onChange('events', evs)}
+          />
+        )}
+        {!match && <ManualEventNameRows events={spec.events} onChange={(v) => onChange('events', v)} />}
+      </div>
+    </div>
+  );
+}
+
+const newSpec = () => ({ version: '', apiType: 'openapi', events: [], raw: {} });
+
+// Renders the "Specification versions" block shared by published and
+// subscribed event cards - one card is structurally identical to the other
+// now that both use the eventAPI definition (id/name/specification[]).
+function EventSpecVersionsField({ apiId, specifications, apiCatalog, onChange }) {
+  const updateSpec = (specIdx, field, value) => {
+    const next = specifications.slice();
+    next[specIdx] = { ...next[specIdx], [field]: value };
+    onChange(next);
+  };
+  const addSpec = () => onChange([...specifications, newSpec()]);
+  const removeSpec = (specIdx) => onChange(specifications.filter((_, idx) => idx !== specIdx));
+
+  return (
+    <div className="field">
+      <label>Specification versions <span className="hint">each version's events are managed separately</span></label>
+      <div className="card-list">
+        {specifications.map((spec, specIdx) => (
+          <EventSpecVersionCard
+            key={specIdx}
+            apiId={apiId}
+            spec={spec}
+            apiCatalog={apiCatalog}
+            onChange={(field, value) => updateSpec(specIdx, field, value)}
+            onRemove={() => removeSpec(specIdx)}
+            removable={specifications.length > 1}
+          />
+        ))}
+      </div>
+      <button type="button" className="save" onClick={addSpec}>+ Add specification version</button>
+    </div>
+  );
+}
+
 export default function EventsStep({ state, setState, apiCatalog }) {
-  const { options: publishedIdOptions, byId: publishedById, eventsById, anyLoading } = useExposedApiEvents(state.exposedAPIs, apiCatalog);
+  const { options: publishedIdOptions, byId: publishedNameById, anyLoading } = useExposedApiEventNames(state.exposedAPIs, apiCatalog);
 
   const updatePublished = (i, field, value) => {
     const next = state.publishedEvents.slice();
@@ -158,7 +265,7 @@ export default function EventsStep({ state, setState, apiCatalog }) {
   // fields never drift out of sync with each other.
   const updatePublishedApi = (i, id) => {
     const next = state.publishedEvents.slice();
-    next[i] = { ...next[i], id, name: publishedById[id]?.name || '' };
+    next[i] = { ...next[i], id, name: publishedNameById[id] || '' };
     setState({ ...state, publishedEvents: next });
   };
   // An exposed API only has one real event-group identity, so it doesn't
@@ -171,7 +278,7 @@ export default function EventsStep({ state, setState, apiCatalog }) {
     setState({
       ...state,
       publishedEvents: [...state.publishedEvents, {
-        id: first?.id || '', name: first?.name || '', apiType: 'openapi', resources: [],
+        id: first?.id || '', name: first?.name || '', specifications: [newSpec()],
       }],
     });
   };
@@ -185,7 +292,7 @@ export default function EventsStep({ state, setState, apiCatalog }) {
   const addSubscribed = () => setState({
     ...state,
     subscribedEvents: [...state.subscribedEvents, {
-      name: '', id: '', apiType: 'openapi', resources: [],
+      name: '', id: '', specifications: [newSpec()],
     }],
   });
   const removeSubscribed = (i) => setState({ ...state, subscribedEvents: state.subscribedEvents.filter((_, idx) => idx !== i) });
@@ -207,7 +314,6 @@ export default function EventsStep({ state, setState, apiCatalog }) {
         )}
         <div className="card-list">
           {state.publishedEvents.map((item, i) => {
-            const events = eventsById[item.id] || [];
             // Options already claimed by another card are hidden from this
             // one's dropdown - except this card's own current id, which
             // must stay selectable (it's not a duplicate of itself).
@@ -231,26 +337,13 @@ export default function EventsStep({ state, setState, apiCatalog }) {
                     <label>Swagger API Name</label>
                     <input type="text" value={item.name} readOnly className="locked" />
                   </div>
-                  <div className="field">
-                    <label>API type</label>
-                    <input type="text" value={item.apiType} onChange={(e) => updatePublished(i, 'apiType', e.target.value)} />
-                  </div>
                 </div>
-                <div className="field">
-                  <label>Available events <span className="hint">from the API's real swagger spec</span></label>
-                  {anyLoading && !events.length ? (
-                    <div className="hint">Loading events from swagger...</div>
-                  ) : events.length ? (
-                    <EventSelector
-                      key={item.id}
-                      events={events}
-                      selected={item.resources}
-                      onSave={(evs) => updatePublished(i, 'resources', evs)}
-                    />
-                  ) : (
-                    <ManualResourceRows resources={item.resources} onChange={(v) => updatePublished(i, 'resources', v)} />
-                  )}
-                </div>
+                <EventSpecVersionsField
+                  apiId={item.id}
+                  specifications={item.specifications}
+                  apiCatalog={apiCatalog}
+                  onChange={(specs) => updatePublished(i, 'specifications', specs)}
+                />
               </div>
             );
           })}
@@ -262,10 +355,10 @@ export default function EventsStep({ state, setState, apiCatalog }) {
         <h3 style={{ marginTop: 0 }}>Subscribed events</h3>
         <div className="card-list">
           {state.subscribedEvents.map((item, i) => {
-            // Same one-API-per-card rule as published events, but id is
-            // free text (any external component's API, not a fixed list) so
-            // it can only be discouraged (datalist suggestions exclude ids
-            // taken elsewhere) and flagged, not hard-prevented like a select.
+            // Each API should only be subscribed to once in this panel - id
+            // is free text (any external component's API, not a fixed
+            // list) so duplicates can only be flagged, not hard-prevented
+            // like the published events' select.
             const otherApiIds = state.subscribedEvents
               .filter((_, idx) => idx !== i)
               .map((s) => (s.id || '').trim().toUpperCase())
@@ -293,33 +386,14 @@ export default function EventsStep({ state, setState, apiCatalog }) {
 
 // Subscribed events reference some other component's exposed API - there's
 // no fixed list to pick from like published events have, so the user looks
-// one up in the API catalog by id, and we fetch its swagger the same way
-// (event name from info.title, available events from /listener/* paths).
+// one up in the API catalog by id; the event-group name is free text too
+// (not swagger-derived, since that swagger belongs to a component this app
+// doesn't own).
 function SubscribedEventCard({ item, apiCatalog, onChange, onRemove, index, excludeApiIds, isDuplicate }) {
-  const [events, setEvents] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-
-  const match = matchCatalogEntry(apiCatalog, (item.id || '').trim());
   const datalistId = `event-api-catalog-options-${index}`;
   // Suggestions exclude APIs already claimed by another subscribed-event
   // card - each API should only be subscribed to once in this panel.
   const availableCatalog = apiCatalog.filter((a) => !excludeApiIds.includes(a.id.toUpperCase()));
-
-  const lookup = async () => {
-    if (!match) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await api.apiResources(match.swagger);
-      setEvents(result.events || []);
-      if (result.eventName && !item.name) onChange('name', result.eventName);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   return (
     <div className="card">
@@ -336,7 +410,7 @@ function SubscribedEventCard({ item, apiCatalog, onChange, onRemove, index, excl
             type="text"
             list={datalistId}
             value={item.id}
-            onChange={(e) => { onChange('id', e.target.value); setEvents(null); }}
+            onChange={(e) => onChange('id', e.target.value)}
             placeholder="TMF633"
             className={isDuplicate ? 'duplicate' : undefined}
           />
@@ -348,32 +422,13 @@ function SubscribedEventCard({ item, apiCatalog, onChange, onRemove, index, excl
           <label>API name</label>
           <input type="text" value={item.name} onChange={(e) => onChange('name', e.target.value)} placeholder="ServiceCatalogManagement" />
         </div>
-        <div className="field">
-          <label>API type</label>
-          <input type="text" value={item.apiType} onChange={(e) => onChange('apiType', e.target.value)} />
-        </div>
       </div>
-      <div className="field">
-        <label>Available events <span className="hint">from the API's real swagger spec</span></label>
-        {!match && <div className="hint">No catalog entry found for {item.id || '(no id entered)'} - add event names manually below.</div>}
-        {match && !events && (
-          <button type="button" onClick={lookup} disabled={loading}>
-            {loading ? 'Loading spec...' : `Load events from ${match.id} v${match.version} spec`}
-          </button>
-        )}
-        {error && <div className="status-banner error" style={{ marginTop: 8 }}>{error}</div>}
-        {events && (
-          <EventSelector
-            key={match?.id}
-            events={events}
-            selected={item.resources}
-            onSave={(evs) => onChange('resources', evs)}
-          />
-        )}
-        {!match && (
-          <ManualResourceRows resources={item.resources} onChange={(v) => onChange('resources', v)} />
-        )}
-      </div>
+      <EventSpecVersionsField
+        apiId={item.id}
+        specifications={item.specifications}
+        apiCatalog={apiCatalog}
+        onChange={(specs) => onChange('specifications', specs)}
+      />
     </div>
   );
 }

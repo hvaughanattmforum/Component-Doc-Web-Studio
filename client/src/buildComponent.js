@@ -53,17 +53,56 @@ function buildApiEntry(entry) {
   return out;
 }
 
-function buildEventEntry(entry, kind) {
+// Builds one event-group's `specification[]` entry - the events
+// published/subscribed under one released version of that group. Mirrors
+// buildSpecEntry for APIs above; the `raw` passthrough preserves fields the
+// wizard doesn't expose (e.g. url).
+function buildEventSpecEntry(spec) {
+  const raw = spec.raw ? JSON.parse(JSON.stringify(spec.raw)) : {};
+  const out = { ...raw };
+  const versionValue = spec.version
+    ? (isNaN(spec.version) ? spec.version.trim() : Number(spec.version))
+    : undefined;
+  if (versionValue !== undefined) out.version = versionValue;
+  else delete out.version;
+
+  const events = (spec.events || []).map((e) => e.trim()).filter(Boolean);
+  if (events.length) out.events = events;
+  else delete out.events;
+
+  if (spec.apiType) out.apiType = spec.apiType.trim();
+  else delete out.apiType;
+
+  return out;
+}
+
+// Builds an event-group entry (one `publishedEvents`/`subscribedEvents`
+// item) in the current versioned eventAPI shape: `id`, `name` and a
+// `specification` array of per-version event-name lists, matching how
+// exposedAPI/dependentAPI are versioned. The schema no longer allows the
+// older flat shape's top-level `hub`/`call-back`/`implementation`/`port`/
+// `resources`/`apiType` fields (`additionalProperties: false` on eventAPI),
+// so even a component read in that older shape (see parseEventEntry) is
+// always saved back out in the current shape - the older shape is read-only
+// in this wizard.
+function buildEventEntry(entry) {
   const raw = entry.raw ? JSON.parse(JSON.stringify(entry.raw)) : {};
   const out = { ...raw, id: (entry.id || '').trim(), name: entry.name.trim() };
-  if (kind === 'published' && entry.hub) out.hub = entry.hub.trim();
-  if (kind === 'subscribed' && entry.callback) out['call-back'] = entry.callback.trim();
-  if (entry.implementation) out.implementation = entry.implementation.trim();
-  if (entry.port) out.port = Number(entry.port);
-  const resources = (entry.resources || []).map((r) => r.trim()).filter(Boolean);
-  if (resources.length) out.resources = resources;
-  if (entry.specification) out.specification = entry.specification.trim();
-  if (entry.apiType) out.apiType = entry.apiType.trim();
+  delete out.hub;
+  delete out['call-back'];
+  delete out.implementation;
+  delete out.port;
+  delete out.resources;
+  delete out.apiType;
+  delete out.apitype;
+
+  const specifications = (entry.specifications || [])
+    .filter((s) => s.version || (s.events || []).length || s.apiType || Object.keys(s.raw || {}).length)
+    .map(buildEventSpecEntry);
+
+  if (specifications.length) out.specification = specifications;
+  else delete out.specification;
+
   return out;
 }
 
@@ -116,11 +155,11 @@ export function buildComponent(state, original) {
   if (dependentAPIs.length) coreFunction.dependentAPIs = dependentAPIs;
   else delete coreFunction.dependentAPIs;
 
-  const publishedEvents = state.publishedEvents.filter((e) => e.name.trim()).map((e) => buildEventEntry(e, 'published'));
+  const publishedEvents = state.publishedEvents.filter((e) => e.name.trim()).map(buildEventEntry);
   if (publishedEvents.length) coreFunction.publishedEvents = publishedEvents;
   else delete coreFunction.publishedEvents;
 
-  const subscribedEvents = state.subscribedEvents.filter((e) => e.name.trim()).map((e) => buildEventEntry(e, 'subscribed'));
+  const subscribedEvents = state.subscribedEvents.filter((e) => e.name.trim()).map(buildEventEntry);
   if (subscribedEvents.length) coreFunction.subscribedEvents = subscribedEvents;
   else delete coreFunction.subscribedEvents;
 

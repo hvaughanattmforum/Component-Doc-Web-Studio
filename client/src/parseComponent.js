@@ -37,17 +37,39 @@ function parseApiEntry(entry) {
   };
 }
 
-function parseEventEntry(entry, kind) {
+// Each entry in an eventAPI's `specification` is a distinct released version
+// of that event group with its own event-name list - e.g. TMF652 v4 renamed
+// several events published under v3. One editable row per specification
+// entry, same pattern as parseSpecEntry for APIs above.
+function parseEventSpecEntry(specEntry) {
+  return {
+    version: specEntry?.version !== undefined ? String(specEntry.version) : '',
+    apiType: specEntry?.apiType || 'openapi',
+    events: Array.isArray(specEntry?.events) ? specEntry.events : [],
+    raw: specEntry || {},
+  };
+}
+
+// Reads both the current eventAPI shape (`specification: [{version, events,
+// ...}]`, matching how exposedAPI/dependentAPI are versioned) and the older
+// flat shape it replaced (a single top-level `resources` list plus
+// `apiType`/`hub`/`call-back`/`implementation`/`port`). Older components on
+// disk may still be in the flat shape, and this wizard can still open them -
+// but saving always re-emits the current versioned shape (see
+// buildEventEntry), since the schema no longer allows the flat one. The flat
+// shape is read-only here: its fields are folded into a single synthesized
+// specification row so the wizard doesn't crash or blank the form, but that
+// row's now-invalid fields (hub/call-back/implementation/port) aren't
+// preserved on save.
+function parseEventEntry(entry) {
+  const specs = Array.isArray(entry.specification) ? entry.specification : null;
+  const specifications = specs
+    ? (specs.length ? specs.map(parseEventSpecEntry) : [parseEventSpecEntry(null)])
+    : [parseEventSpecEntry({ apiType: entry.apiType || entry.apitype, events: entry.resources })];
   return {
     id: entry.id || '',
     name: entry.name || '',
-    hub: kind === 'published' ? (entry.hub || '') : '',
-    callback: kind === 'subscribed' ? (entry['call-back'] || '') : '',
-    implementation: entry.implementation || '',
-    port: entry.port || '',
-    specification: entry.specification || '',
-    apiType: entry.apiType || '',
-    resources: Array.isArray(entry.resources) ? entry.resources : [],
+    specifications,
     raw: entry,
   };
 }
@@ -74,7 +96,7 @@ export function stateFromComponent(component) {
     SIDs: meta.SIDs || [],
     exposedAPIs: (core.exposedAPIs || []).map(parseApiEntry),
     dependentAPIs: (core.dependentAPIs || []).map(parseApiEntry),
-    publishedEvents: (core.publishedEvents || []).map((e) => parseEventEntry(e, 'published')),
-    subscribedEvents: (core.subscribedEvents || []).map((e) => parseEventEntry(e, 'subscribed')),
+    publishedEvents: (core.publishedEvents || []).map(parseEventEntry),
+    subscribedEvents: (core.subscribedEvents || []).map(parseEventEntry),
   };
 }
