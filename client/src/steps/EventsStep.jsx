@@ -197,21 +197,27 @@ function EventSpecVersionCard({ apiId, spec, apiCatalog, onChange, onRemove, rem
             No catalog entry found for {apiId || '(no API selected)'}{spec.version ? ` v${spec.version}` : ''} - add event names manually below.
           </div>
         )}
-        {match && !events && (
+        {match && (
           <button type="button" onClick={load} disabled={loading}>
             {loading ? 'Loading spec...' : `Load events from ${match.id} v${match.version} spec`}
           </button>
         )}
         {error && <div className="status-banner error" style={{ marginTop: 8 }}>{error}</div>}
-        {events && (
+        {/* Until the swagger fetch succeeds, the already-saved event names
+            (spec.events, read straight from the component's YAML) still need
+            to be visible and editable - otherwise a component with a real
+            catalog match shows a bare "Load" button and its actual saved
+            events disappear from view until that button is clicked. */}
+        {events ? (
           <EventSelector
             key={`${match?.id}::${spec.version}`}
             events={events}
             selected={spec.events}
             onSave={(evs) => onChange('events', evs)}
           />
+        ) : (
+          <ManualEventNameRows events={spec.events} onChange={(v) => onChange('events', v)} />
         )}
-        {!match && <ManualEventNameRows events={spec.events} onChange={(v) => onChange('events', v)} />}
       </div>
     </div>
   );
