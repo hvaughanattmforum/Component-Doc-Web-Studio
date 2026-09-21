@@ -316,7 +316,7 @@ export default function App() {
         </p>
       )}
       <p className="subtitle">
-        Create or edit a TMFCxxx component specification for the ODA Component Specification repository.
+        Create or edit a TMFCnnn component specification for the ODA Component Development repository.
         {/* Strictly === false: health reports null when this deployment has no
             shared checkout to look in (per-user workspaces), and warning about
             a missing folder there would fire for every signed-out visitor. */}
