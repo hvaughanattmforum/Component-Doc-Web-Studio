@@ -461,23 +461,31 @@ export default function App() {
           {step !== 6 && (
             <div className="side-pane-stack">
               {sidePanes.map((pane) => (
-                <HighlightablePane
-                  key={pane.paneKey}
-                  title={pane.title}
-                  text={pane.text}
-                  dirName={pane.dirName}
-                  versionDir={pane.versionDir}
-                  relativePath={pane.relativePath}
-                  canPermalink={pane.canPermalink}
-                  permalinkDisabledReason={pane.permalinkDisabledReason}
-                  repoInfo={repoInfo}
-                  step={step}
-                  paneKey={pane.paneKey}
-                  initialSelection={pendingSelection}
-                  initialSelectionPane={pendingSelectionPane}
-                  onInitialSelectionApplied={() => setPendingSelection(null)}
-                  onAddToIssueDraft={addToIssueDraft}
-                />
+                <React.Fragment key={pane.paneKey}>
+                  {pane.diagram && (
+                    <div className="panel panel-white diagram-pane">
+                      <h3 style={{ marginTop: 0 }}>eTOM–SID links diagram</h3>
+                      <p className="hint">Live preview of how these links will render in the specification document - updates as you edit the rows below.</p>
+                      {pane.diagram}
+                    </div>
+                  )}
+                  <HighlightablePane
+                    title={pane.title}
+                    text={pane.text}
+                    dirName={pane.dirName}
+                    versionDir={pane.versionDir}
+                    relativePath={pane.relativePath}
+                    canPermalink={pane.canPermalink}
+                    permalinkDisabledReason={pane.permalinkDisabledReason}
+                    repoInfo={repoInfo}
+                    step={step}
+                    paneKey={pane.paneKey}
+                    initialSelection={pendingSelection}
+                    initialSelectionPane={pendingSelectionPane}
+                    onInitialSelectionApplied={() => setPendingSelection(null)}
+                    onAddToIssueDraft={addToIssueDraft}
+                  />
+                </React.Fragment>
               ))}
             </div>
           )}
