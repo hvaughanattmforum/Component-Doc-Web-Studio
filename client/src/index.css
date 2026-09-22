@@ -438,6 +438,13 @@ input.locked {
   padding: 20px 20px 20px 0;
   min-width: 0;
 }
+/* .side-pane-stack already spaces every direct child with `gap` - drop the
+   generic .panel bottom margin here so the diagram pane isn't gapped twice
+   from whatever pane sits below it. */
+.side-pane-stack .diagram-pane {
+  margin-bottom: 0;
+  flex-shrink: 0;
+}
 .yaml-pane {
   background: var(--panel);
   display: flex;

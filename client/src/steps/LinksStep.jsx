@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { renderLinksMarkdown } from '../renderMarkdown.js';
+import EtomSidDiagram from '../EtomSidDiagram.jsx';
 
 const ETOM_SID_DIRECTIONS = ['bidirectional', 'activity consumes', 'activity produces'];
 
@@ -103,7 +104,7 @@ function FieldInput({ field, value, onChange }) {
 // free text.
 function LinksPanel({
   dirName, versionDir, title, helpText, fields, blankRow, pairKeyFn, getApi, saveApi,
-  columns, suffix, paneKey, onPreviewReady,
+  columns, suffix, paneKey, onPreviewReady, showDiagram,
 }) {
   const [data, setData] = useState(null); // { exists, heading, notesBefore, notesAfter, links }
   const [saving, setSaving] = useState(false);
@@ -173,9 +174,10 @@ function LinksPanel({
   // doesn't leave a stale pane behind.
   useEffect(() => {
     if (!data) { onPreviewReady?.(paneKey, null); return undefined; }
-    onPreviewReady?.(paneKey, { title, text: previewText, dirName, versionDir, relativePath, canPermalink, permalinkDisabledReason });
+    const diagram = showDiagram ? <EtomSidDiagram links={data.links} /> : null;
+    onPreviewReady?.(paneKey, { title, text: previewText, dirName, versionDir, relativePath, canPermalink, permalinkDisabledReason, diagram });
     return () => onPreviewReady?.(paneKey, null);
-  }, [paneKey, data, title, previewText, dirName, versionDir, relativePath, canPermalink, permalinkDisabledReason, onPreviewReady]);
+  }, [paneKey, data, title, previewText, dirName, versionDir, relativePath, canPermalink, permalinkDisabledReason, onPreviewReady, showDiagram]);
 
   if (!dirName || !versionDir) {
     return (
@@ -343,6 +345,7 @@ export default function LinksStep({ dirName, versionDir, eTOMs, SIDs, onPreviewR
       suffix="eTOM_SID_Links"
       paneKey="links"
       onPreviewReady={onPreviewReady}
+      showDiagram
     />
   );
 }
