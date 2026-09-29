@@ -62,7 +62,7 @@ export default function BranchSwitcher({ currentBranch, repoInfo, hasOpenWizard,
         // checked out against the session's own (stale or freshly
         // auto-generated) branch name, see a mismatch, and silently check
         // out/commit to THAT instead - see ensureSessionBranch in
-        // server/index.js. Also clears any stale prUrl tied to the old name.
+        // server/index.js.
         return api.setBranchName(selected);
       })
       : (worktrees.find((w) => w.branch === selected)

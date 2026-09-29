@@ -238,7 +238,7 @@ async function ensureWorkspace(req, res, next) {
     setupPromise = (async () => {
       fs.mkdirSync(SESSIONS_ROOT, { recursive: true });
       if (!fs.existsSync(dir)) {
-        // SPEC_REPO_URL (tmforum-rand/TMForum-ODA-Component-Specification)
+        // SPEC_REPO_URL (tmforum-rand/TMForum-ODA-Component_Development)
         // is a private repo, so this needs the signed-in user's OAuth token -
         // same credential-helper approach as commitAndPush below, for the
         // same reason (never embed the token in argv, which execFileAsync
@@ -1614,17 +1614,12 @@ app.get('/api/git/branch-name', (req, res) => {
   res.json({ ok: true, branch: ensureSessionBranch(req) });
 });
 
-// Renaming intentionally forgets any PR already opened under the old branch
-// name (see commitAndOpenPR) - that PR was tied to that specific head
-// branch, so it no longer applies once the session pushes under a new name.
 app.post('/api/git/branch-name', (req, res) => {
   const { branch } = req.body;
   if (!isValidGitBranchName(branch)) {
     return res.status(400).json({ ok: false, error: `'${branch}' is not a valid git branch name` });
   }
   req.session.branchName = branch;
-  delete req.session.prUrl;
-  delete req.session.prNumber;
   res.json({ ok: true, branch });
 });
 
@@ -1632,8 +1627,7 @@ app.post('/api/git/branch-name', (req, res) => {
 // (the signed-in user's own workspace clone, an active worktree, or the
 // shared legacy checkout - see resolveRepoRoot) and pushes it to this
 // session's own feature branch (created lazily on first push, reused after)
-// - never to the base branch directly. Does NOT open a PR - see
-// commitAndOpenPR below for that, layered on top. Returns
+// - never to the base branch directly. Does NOT open a PR. Returns
 // { committed: false } with no other side effects if nothing actually
 // changed (e.g. a push with no new edits since the last one).
 function commitAndPush(req, { message }) {
@@ -1714,36 +1708,8 @@ function redactToken(text, token) {
   return token ? text.split(token).join('[REDACTED]') : text;
 }
 
-// Layers PR creation on top of commitAndPush - this is what turns "push" into
-// "propose a change" instead of just landing a branch on the shared repo,
-// matching how this app's users already worked by hand (route changes via
-// PR - see feedback_pr_workflow_doc_spec_studio in project memory). Reuses
-// the same PR across repeated calls in a session rather than opening a new
-// one each time.
-async function commitAndOpenPR(req, { message, prTitle }) {
-  const result = commitAndPush(req, { message });
-  // Nothing new to commit doesn't mean nothing to report - a PR from an
-  // earlier push in this session may already be open, so surface it instead
-  // of leaving the caller with just "committed: false" and no link.
-  if (!result.committed) return { ...result, prUrl: req.session.prUrl || null, prNumber: req.session.prNumber || null };
-
-  if (!req.session.prUrl) {
-    const user = req.session.user;
-    const pr = await githubApiRequest(user.accessToken, 'POST', `/repos/${result.identity.owner}/${result.identity.repo}/pulls`, {
-      title: prTitle,
-      head: result.branch,
-      base: SPEC_REPO_BRANCH,
-      body: `Opened automatically by ODA Web Studio on behalf of @${user.login}.`,
-    });
-    req.session.prUrl = pr.html_url;
-    req.session.prNumber = pr.number;
-  }
-
-  return { committed: true, prUrl: req.session.prUrl, prNumber: req.session.prNumber, branch: result.branch };
-}
-
 // Files a GitHub issue against the repo currently being edited (same remote
-// commitAndOpenPR opens PRs against) - used by the Live YAML pane's
+// commitAndPush pushes to) - used by the Live YAML pane's
 // "highlight rows -> permalink -> issue" flow on the client. Independent of
 // any git working-tree state (no commit/push involved), so it just needs the
 // signed-in user's token and the repo identity.
@@ -1814,40 +1780,17 @@ app.post('/api/save', (req, res) => {
 });
 
 // Commits and pushes whatever's currently on disk (in this request's
-// resolved repo root - worktree, per-session clone, or the shared legacy
-// checkout) to this session's own feature branch on origin, then opens a PR
-// for it (hosted/per-session-workspace mode only - see commitAndOpenPR and
-// the same req.workspaceDir gate /api/save used to use for this before it
-// moved here). "Save"/"Save to Worktree" only ever writes locally; this is
-// the explicit, separate action that actually publishes those local commits
-// - under whatever branch name the user has confirmed on the Review & Save
-// panel by this point - to the real repo.
-app.post('/api/git/push', async (req, res) => {
+// resolved repo root) to this session's own feature branch on origin. Never
+// opens a PR - the user opens one themselves on GitHub when they're ready.
+// "Save"/"Save to Worktree" only ever writes locally; this is the explicit,
+// separate action that actually publishes those local commits - under
+// whatever branch name the user has confirmed on the Review & Save panel by
+// this point - to the real repo.
+app.post('/api/git/push', (req, res) => {
   try {
     const message = `Update component specifications via ODA Web Studio (${req.session.user.login})`;
-    const result = req.workspaceDir
-      ? await commitAndOpenPR(req, { message, prTitle: `ODA Web Studio changes from ${req.session.user.login}` })
-      : commitAndPush(req, { message });
-    res.json({ ok: true, ...result });
-  } catch (err) {
-    res.status(500).json({ ok: false, error: err.message });
-  }
-});
-
-// Same commit+push+PR behavior as /api/git/push above, now that that route
-// does its own commitAndOpenPR - this one predates that and nothing in the
-// client calls it. Left in place in case something else hits it directly;
-// worth removing in a follow-up if it stays unused.
-app.post('/api/submit-pr', async (req, res) => {
-  if (!req.workspaceDir) {
-    return res.status(400).json({ ok: false, error: 'PR submission requires per-session workspaces (SPEC_REPO_URL) to be configured.' });
-  }
-  try {
-    const pr = await commitAndOpenPR(req, {
-      message: `Update component specifications via ODA Web Studio (${req.session.user.login})`,
-      prTitle: `ODA Web Studio changes from ${req.session.user.login}`,
-    });
-    res.json({ ok: true, pr });
+    const { committed, branch } = commitAndPush(req, { message });
+    res.json({ ok: true, committed, branch });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }

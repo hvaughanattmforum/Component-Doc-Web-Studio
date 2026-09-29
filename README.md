@@ -1,22 +1,22 @@
 # ODA Web Studio
 
 A web app for creating and editing TMForum ODA component (`TMFCxxx`) specifications
-in the [WebSpecDemoData](https://github.com/hvaughanattmforum/WebSpecDemoData)
+in the [TMForum-ODA-Component_Development](https://github.com/tmforum-rand/TMForum-ODA-Component_Development)
 repository. Multiple signed-in GitHub users can use it at once; each user's
-edits land as their own pull request rather than being written straight to
-the repo.
+edits are pushed to their own branch rather than being written straight to
+`main`.
 
 The app is an Express server (`server/`) plus a React/Vite client
 (`client/`), served together as one process.
 
 ## Signing in (for users of the hosted app)
 
-Before you start, you need a GitHub account. The specification repository
-[`WebSpecDemoData`](https://github.com/hvaughanattmforum/WebSpecDemoData) is
-public, so anyone signed in can read it - but saving your work pushes a
-branch and opens a pull request, which needs you to be a **collaborator** on
-that repository. If you're not sure whether you have that, ask whoever
-manages the `hvaughanattmforum` account.
+Before you start, you need a GitHub account with access to the specification
+repository
+[`TMForum-ODA-Component_Development`](https://github.com/tmforum-rand/TMForum-ODA-Component_Development).
+The repository is private, and pushing your work to a branch needs write
+access to it. If you're not sure whether you have that, ask whoever manages
+the `tmforum-rand` organization.
 
 1. **Open the app** at <https://componentspecstudio.crowdframe.global>.
 2. **Click "Sign in with GitHub"**, near the top right of the page.
@@ -27,7 +27,7 @@ manages the `hvaughanattmforum` account.
 4. **Review and approve access.** GitHub shows a page titled something like
    "Authorize [app name]", listing exactly what the app is asking permission
    to do on your behalf - typically access to your repositories (to read
-   specification files and open pull requests for you) and your basic
+   specification files and push branches for you) and your basic
    profile info (name and avatar). Clicking the green **Authorize** button
    allows the app to act using *your own* GitHub account and permissions -
    not a shared account. Every change the app makes in GitHub happens under
@@ -37,14 +37,13 @@ manages the `hvaughanattmforum` account.
    to it.
 
 The first time you load or create a component, the app sets up your own
-private workspace behind the scenes - this can take a few seconds. Any
-changes you save are proposed as a **pull request** under your GitHub
-username, not committed directly - someone reviews it before it's merged,
-same as a normal GitHub workflow.
+private workspace behind the scenes - this can take a few seconds. When
+you click **Push**, your changes are committed under your GitHub username
+and pushed to your own branch, never to `main`. The app does not open a pull
+request - open one yourself on GitHub from that branch when you're ready.
 
-If saving fails with a permissions error, that usually means your GitHub
-account isn't a collaborator on the specification repository yet - reading
-works for anyone, but pushing a branch does not.
+If pushing fails with a permissions error, that usually means your GitHub
+account doesn't have write access to the specification repository yet.
 
 ## Local development
 
@@ -65,7 +64,7 @@ tool against one local checkout, same as the original desktop app - useful
 for quick local testing without exercising the per-session clone/PR flow:
 
 ```
-REPO_ROOT=/path/to/your/WebSpecDemoData/checkout npm --prefix server start
+REPO_ROOT=/path/to/your/TMForum-ODA-Component_Development/checkout npm --prefix server start
 ```
 
 `POST /api/save` still writes straight to that checkout in this mode; no
@@ -81,7 +80,7 @@ branch/commit/PR happens.
 | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | yes | From a GitHub OAuth App - see below |
 | `GITHUB_CALLBACK_URL` | no (default `http://localhost:<PORT>/auth/github/callback`) | Must exactly match the OAuth App's callback URL |
 | `SPEC_REPO_URL` | yes, for per-user workspaces | Git URL of the ODA spec repo each signed-in user gets their own clone of |
-| `SPEC_REPO_BRANCH` | no (default `main`) | Base branch new session branches/PRs are created from |
+| `SPEC_REPO_BRANCH` | no (default `main`) | Base branch new session branches are created from |
 | `REPO_ROOT` | no | Legacy single-checkout fallback (see above) - ignored once `SPEC_REPO_URL` is set |
 | `FRAMEWORKS_DIR` | no | Directory of pre-generated eTOM/SID/Functional Framework catalog JSON (shared, not per-user) |
 
@@ -92,7 +91,7 @@ Create one at <https://github.com/settings/developers> → New OAuth App:
 - Authorization callback URL: must exactly match `GITHUB_CALLBACK_URL` (or its default)
 
 The `repo` scope is requested at sign-in so the server can push a user's
-session branch and open a PR on their behalf.
+session branch and file GitHub issues on their behalf.
 
 ## Hosted deployment
 
@@ -110,7 +109,7 @@ client baked in - see [`Dockerfile`](Dockerfile)):
 docker build -t oda-web-studio .
 docker run -p 4310:4310 \
   -e SESSION_SECRET=... -e GITHUB_CLIENT_ID=... -e GITHUB_CLIENT_SECRET=... \
-  -e SPEC_REPO_URL=https://github.com/hvaughanattmforum/WebSpecDemoData.git \
+  -e SPEC_REPO_URL=https://github.com/tmforum-rand/TMForum-ODA-Component_Development.git \
   oda-web-studio
 ```
 
