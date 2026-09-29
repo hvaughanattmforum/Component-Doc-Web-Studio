@@ -189,13 +189,11 @@ export default function ReviewStep({ state, original, originalLocation, mode, on
       {pushResult && pushResult.ok && pushResult.committed && (
         <div className="status-banner ok">
           Pushed to <code>{pushResult.branch}</code> on origin.
-          {pushResult.prUrl && <> — <a href={pushResult.prUrl} target="_blank" rel="noreferrer">view pull request</a></>}
         </div>
       )}
       {pushResult && pushResult.ok && !pushResult.committed && (
         <div className="status-banner ok">
           Nothing to push - no changes since the last push.
-          {pushResult.prUrl && <> — <a href={pushResult.prUrl} target="_blank" rel="noreferrer">view pull request</a></>}
         </div>
       )}
       {pushResult && !pushResult.ok && (
