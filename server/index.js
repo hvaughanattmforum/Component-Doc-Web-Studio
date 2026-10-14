@@ -1140,56 +1140,10 @@ function registerLinksRoutes(type) {
 
 Object.values(LINK_TYPES).forEach(registerLinksRoutes);
 
-// Description lookup files (Diagrams/Source/<ID>_eTOM_Descriptions.md,
-// Diagrams/Source/<ID>_FF_Descriptions.md, Diagrams/Source/<ID>_SID_Descriptions.md)
-// hold prose the YAML has no room for: each eTOM activity's, or each Functional
-// Framework function's, own descriptive text (and, for FF, its two
-// Aggregate Function Level columns), plus three provenance columns -
-// Version, Document Name, Alignment Notes - recording which framework
-// release the row was transcribed at, the activity/function name as it
-// appears in the source document, and whether that still matches the
-// component's current YAML. SID_Descriptions instead keeps each SID ABE's
-// own Level 1/Level 2 definitions and its original "Source" column
-// (TMFCxxx_vX.Y.Z.pdf) - it wasn't converted to the Version/Document
-// Name/Alignment Notes shape above because, unlike eTOM/FF, only one real
-// file of this type exists (TMFC002_SID_Descriptions.md - the template was
-// derived from it as-is). All of this is transcribed by hand from the
-// component's original published .docx/.pdf - that text lives in the
-// eTOM/SID/Functional Framework standards themselves, not in this
-// component's own YAML (see the component-specification-markdown skill's
-// references/diagrams.md, "eTOM/Functional Framework descriptions").
-// Same heading + free-text source note + GFM table shape as the link tables
-// above (real examples: TMFC005_eTOM_Descriptions.md/_FF_Descriptions.md,
-// TMFC002_SID_Descriptions.md), so this reuses linksFilePath/
-// parseLinksMarkdown/renderLinksMarkdown/registerLinksRoutes as-is - "links"
-// in those names is a misnomer once shared like this, but they were already
-// fully generic (column/field arrays of any shape), so there's nothing
-// description-specific to add.
-const DESCRIPTION_TYPES = {
-  etom: {
-    suffix: 'eTOM_Descriptions',
-    route: 'etom-descriptions',
-    columns: ['Identifier', 'Description', 'Version', 'Document Name', 'Alignment Notes'],
-    fields: ['identifier', 'description', 'version', 'documentName', 'alignmentNotes'],
-    defaultHeading: (id) => `${id} eTOM Business Activity Descriptions`,
-  },
-  ff: {
-    suffix: 'FF_Descriptions',
-    route: 'ff-descriptions',
-    columns: ['Function ID', 'Function Description', 'Aggregate Function Level 1', 'Aggregate Function Level 2', 'Version', 'Document Name', 'Alignment Notes'],
-    fields: ['functionId', 'functionDescription', 'aggregateLevel1', 'aggregateLevel2', 'version', 'documentName', 'alignmentNotes'],
-    defaultHeading: (id) => `${id} Functional Framework Function Descriptions`,
-  },
-  sid: {
-    suffix: 'SID_Descriptions',
-    route: 'sid-descriptions',
-    columns: ['SID ABE Level 1', 'SID ABE L1 Definition', 'SID ABE Level 2', 'SID ABE L2 Definition', 'Source'],
-    fields: ['sidAbeLevel1', 'sidAbeLevel1Definition', 'sidAbeLevel2', 'sidAbeLevel2Definition', 'source'],
-    defaultHeading: (id) => `${id} SID Descriptions`,
-  },
-};
-
-Object.values(DESCRIPTION_TYPES).forEach(registerLinksRoutes);
+// The eTOM/FF/SID _Descriptions.md files (Diagrams/Source/<ID>_eTOM_Descriptions.md etc.)
+// are deliberately not served or written here: no Component_Development skill reads them
+// any more (tmforum-rand/TMForum-ODA-Component_Development#95), so editing them had no
+// effect on the published specification.
 
 // The <ID>_<Name>_Supplement.md file (specifications/<dirName>/Diagrams/Source/)
 // is the hand-curated tail of a component's specification - Jira references,

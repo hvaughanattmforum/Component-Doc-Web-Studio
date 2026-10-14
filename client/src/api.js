@@ -62,24 +62,6 @@ export const api = {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ...payload, version: versionDir }),
   }).then((res) => res.json().then((body) => ({ status: res.status, ...body }))),
-  componentEtomDescriptions: (dirName, versionDir) => fetch(`${BASE}/component/${encodeURIComponent(dirName)}/etom-descriptions?version=${encodeURIComponent(versionDir)}`).then(json),
-  saveComponentEtomDescriptions: (dirName, versionDir, payload) => fetch(`${BASE}/component/${encodeURIComponent(dirName)}/etom-descriptions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...payload, version: versionDir }),
-  }).then((res) => res.json().then((body) => ({ status: res.status, ...body }))),
-  componentFFDescriptions: (dirName, versionDir) => fetch(`${BASE}/component/${encodeURIComponent(dirName)}/ff-descriptions?version=${encodeURIComponent(versionDir)}`).then(json),
-  saveComponentFFDescriptions: (dirName, versionDir, payload) => fetch(`${BASE}/component/${encodeURIComponent(dirName)}/ff-descriptions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...payload, version: versionDir }),
-  }).then((res) => res.json().then((body) => ({ status: res.status, ...body }))),
-  componentSidDescriptions: (dirName, versionDir) => fetch(`${BASE}/component/${encodeURIComponent(dirName)}/sid-descriptions?version=${encodeURIComponent(versionDir)}`).then(json),
-  saveComponentSidDescriptions: (dirName, versionDir, payload) => fetch(`${BASE}/component/${encodeURIComponent(dirName)}/sid-descriptions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...payload, version: versionDir }),
-  }).then((res) => res.json().then((body) => ({ status: res.status, ...body }))),
   componentSupplement: (dirName, versionDir) => fetch(`${BASE}/component/${encodeURIComponent(dirName)}/supplement?version=${encodeURIComponent(versionDir)}`).then(json),
   // payload: { jiraBody, furtherBody, versionHistoryRows, releaseHistoryRows, acknowledgementsRows }
   saveComponentSupplement: (dirName, versionDir, payload) => fetch(`${BASE}/component/${encodeURIComponent(dirName)}/supplement`, {
