@@ -168,7 +168,7 @@ function LinksPanel({
   // Reports this table's live markdown preview up to App.jsx, which renders
   // it in the right-hand pane (see HighlightablePane.jsx/App.jsx's
   // sidePanes) instead of this component rendering its own pane inline -
-  // lets several of these (Descriptions renders three) share that one
+  // lets several of these share that one
   // column. Skips reporting (and clears any previous report) until there's
   // real data to show; clears on unmount so switching away from this step
   // doesn't leave a stale pane behind.

@@ -12,23 +12,26 @@ function parseGithubRemote(remoteUrl) {
 // permalink (in-app and/or GitHub blob) or adding the range to the issue
 // draft (see CreateIssuePanel.jsx). Originally built as YamlPane.jsx for the
 // main component YAML only; generalized so the same mechanism covers the
-// five hand-edited Diagrams/Source/*.md files too (Links, the three Descriptions
-// tables, and the Supplement) - each caller (App.jsx for the YAML, or
-// LinksStep.jsx/DescriptionsStep.jsx/DocumentHistoryStep.jsx for their own
-// file) supplies its own `text`, `relativePath` and `canPermalink`/
+// two hand-edited Diagrams/Source/*.md files too (Links and the Supplement)
+// - each caller (App.jsx for the YAML, or LinksStep.jsx/
+// DocumentHistoryStep.jsx for their own file) supplies its own `text`, `relativePath` and `canPermalink`/
 // `permalinkDisabledReason` rather than this component knowing anything
 // about where any particular file lives or when it's considered "ready."
 //
 // `paneKey` disambiguates which pane a permalink's highlighted range belongs
-// to (a component can have several of these open on one page at once, e.g.
-// DescriptionsStep renders three) - an in-app permalink's `lines` only gets
+// to (a component can have several of these open on one page at once) - an
+// in-app permalink's `lines` only gets
 // applied by the pane whose `paneKey` matches the URL's `pane` param (see
 // initialSelectionPane/onInitialSelectionApplied, wired from App.jsx).
 //
 // Always rendered inside App.jsx's .side-pane-stack (the .shell third
 // column) - either as the lone Live YAML pane, or as one of however many
-// panes a Component Spec Document step (Links/Descriptions/Document
-// History) has reported via onPreviewReady (see App.jsx's sidePanes).
+// panes a Component Spec Document step (Links/Document History) has
+// reported via onPreviewReady (see App.jsx's sidePanes).
+//
+// `stepName` goes into the in-app permalink by name, not position, so a link
+// keeps opening the same step if the step list changes (App.jsx's
+// stepFromParam still accepts older numeric links).
 export default function HighlightablePane({
   title,
   text,
@@ -38,7 +41,7 @@ export default function HighlightablePane({
   canPermalink,
   permalinkDisabledReason,
   repoInfo,
-  step,
+  stepName,
   paneKey,
   initialSelection,
   initialSelectionPane,
@@ -100,7 +103,7 @@ export default function HighlightablePane({
   };
 
   const appLink = canPermalink && start
-    ? `${window.location.origin}${window.location.pathname}?open=${encodeURIComponent(dirName)}&version=${encodeURIComponent(versionDir)}&step=${step}&pane=${encodeURIComponent(paneKey)}&lines=${start}-${end}`
+    ? `${window.location.origin}${window.location.pathname}?open=${encodeURIComponent(dirName)}&version=${encodeURIComponent(versionDir)}&step=${encodeURIComponent(stepName)}&pane=${encodeURIComponent(paneKey)}&lines=${start}-${end}`
     : null;
 
   const identity = repoInfo?.git?.remoteUrl ? parseGithubRemote(repoInfo.git.remoteUrl) : null;

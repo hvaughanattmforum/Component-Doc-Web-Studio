@@ -10,7 +10,6 @@ import EventsStep from './steps/EventsStep.jsx';
 import DiffStep from './steps/DiffStep.jsx';
 import ReviewStep from './steps/ReviewStep.jsx';
 import DocumentHistoryStep from './steps/DocumentHistoryStep.jsx';
-import DescriptionsStep from './steps/DescriptionsStep.jsx';
 import SetupGuide from './SetupGuide.jsx';
 import HelpButton from './HelpButton.jsx';
 import BranchSwitcher from './BranchSwitcher.jsx';
@@ -18,7 +17,28 @@ import HighlightablePane from './HighlightablePane.jsx';
 import CreateIssuePanel from './CreateIssuePanel.jsx';
 import { stateFromComponent } from './parseComponent.js';
 
-const STEPS = ['Metadata', 'Links', 'Descriptions', 'Exposed APIs', 'Dependent APIs', 'Events', 'Compare Changes', 'Review & Save', 'Document History'];
+const STEPS = ['Metadata', 'Links', 'Exposed APIs', 'Dependent APIs', 'Events', 'Compare Changes', 'Review & Save', 'Document History'];
+// Steps are referred to by name everywhere below, never by position, so the
+// list can change without silently re-pointing a check at the wrong step.
+const stepIndex = (name) => STEPS.indexOf(name);
+
+// The step order before the Descriptions step was removed (it edited the
+// eTOM/FF/SID _Descriptions.md files, which no skill reads any more).
+// Permalinks made before then carry a numeric `step=<n>` in this order;
+// newer ones carry the step's name instead (see HighlightablePane.jsx).
+const LEGACY_STEPS = ['Metadata', 'Links', 'Descriptions', 'Exposed APIs', 'Dependent APIs', 'Events', 'Compare Changes', 'Review & Save', 'Document History'];
+
+// A permalink's `step` param -> a current step index, or -1 if unknown. A
+// legacy link to the removed Descriptions step opens Links, the nearest
+// Component Spec Document step.
+function stepFromParam(value) {
+  if (!value) return -1;
+  if (/^\d+$/.test(value)) {
+    const legacyName = LEGACY_STEPS[parseInt(value, 10)];
+    return stepIndex(legacyName === 'Descriptions' ? 'Links' : legacyName);
+  }
+  return stepIndex(value);
+}
 
 // Shared with the "is this the same content as what's on disk" check below -
 // must stay identical to whatever ReviewStep.jsx dumps YAML with, since
@@ -26,17 +46,17 @@ const STEPS = ['Metadata', 'Links', 'Descriptions', 'Exposed APIs', 'Dependent A
 const YAML_OPTS = { sortKeys: false, lineWidth: -1, noArrayIndent: true };
 
 // Which file each step edits: most steps build up `state` and only write it
-// to the component's main YAML when Review & Save is used, while Links,
-// Descriptions and Document History write straight to their own .md files
-// under that component's Diagrams/Source/ folder (see LinksStep.jsx /
-// DescriptionsStep.jsx / DocumentHistoryStep.jsx) independently of the
-// YAML/Save flow. Grouped here purely for the step pills' display below -
-// doesn't affect step order or navigation. Also used to decide what the
-// right-hand pane shows (see sidePanes below) - steps in the second group
-// show that step's own live .md preview(s) there instead of the Live YAML.
+// to the component's main YAML when Review & Save is used, while Links and
+// Document History write straight to their own .md files under that
+// component's Diagrams/Source/ folder (see LinksStep.jsx /
+// DocumentHistoryStep.jsx) independently of the YAML/Save flow. Grouped here
+// purely for the step pills' display below - doesn't affect step order or
+// navigation. Also used to decide what the right-hand pane shows (see
+// sidePanes below) - steps in the second group show that step's own live .md
+// preview there instead of the Live YAML.
 const STEP_GROUPS = [
-  { label: 'Component YAML', indices: [0, 3, 4, 5, 6, 7] },
-  { label: 'Component Spec Document', indices: [1, 2, 8] },
+  { label: 'Component YAML', indices: ['Metadata', 'Exposed APIs', 'Dependent APIs', 'Events', 'Compare Changes', 'Review & Save'].map(stepIndex) },
+  { label: 'Component Spec Document', indices: ['Links', 'Document History'].map(stepIndex) },
 ];
 const MD_PREVIEW_STEPS = new Set(STEP_GROUPS[1].indices);
 
@@ -74,7 +94,7 @@ export default function App() {
   const [repoInfo, setRepoInfo] = useState(null);
   const [authUser, setAuthUser] = useState(undefined); // undefined = loading, null = signed out
   // Permalinks the user has highlighted from any HighlightablePane (the Live
-  // YAML pane, or one of the five hand-edited .md files' own preview panes)
+  // YAML pane, or one of the two hand-edited .md files' own preview panes)
   // and queued up to reference in one GitHub issue - see
   // HighlightablePane.jsx/CreateIssuePanel.jsx.
   const [issueDraft, setIssueDraft] = useState([]);
@@ -91,9 +111,9 @@ export default function App() {
   // fields), only ever against another call to the same dump pipeline, so a
   // freshly loaded/saved component always compares equal to itself.
   const [savedYamlText, setSavedYamlText] = useState(null);
-  // Live preview info reported up by whichever of Links/Descriptions/
-  // Document History is currently mounted (see onPreviewReady below) -
-  // keyed by paneKey so Descriptions' three tables can all report at once.
+  // Live preview info reported up by whichever of Links/Document History is
+  // currently mounted (see onPreviewReady below) - keyed by paneKey so
+  // several panes can report at once.
   // Rendered in the right-hand pane in place of the Live YAML pane for
   // those steps (see sidePanes below) - populated/cleared entirely by the
   // step components themselves, so App.jsx never needs to know their
@@ -103,8 +123,8 @@ export default function App() {
   // Stable identity (empty dep array - setStepPanes from useState is itself
   // stable) so passing this down doesn't re-trigger a step panel's own
   // reporting effect just because App.jsx re-rendered for an unrelated
-  // reason - see the effect in LinksStep.jsx/DescriptionsStep.jsx/
-  // DocumentHistoryStep.jsx that calls this.
+  // reason - see the effect in LinksStep.jsx/DocumentHistoryStep.jsx that
+  // calls this.
   const handlePreviewReady = useCallback((paneKey, info) => {
     setStepPanes((prev) => {
       if (!info) {
@@ -190,12 +210,11 @@ export default function App() {
   };
 
   // Opens a permalink copied from any pane's selection toolbar
-  // (?open=<dirName>&version=<versionDir>&step=<n>&pane=<paneKey>&lines=<start>-<end>)
-  // - waits for sign-in to resolve, and only fires while at the start screen
-  // so it never hijacks a wizard already in progress. `pane` says which
-  // HighlightablePane instance should claim pendingSelection once it's
-  // mounted (only one pane is ever the YAML pane, but a step like
-  // Descriptions renders three of its own) - see
+  // (?open=<dirName>&version=<versionDir>&step=<name>&pane=<paneKey>&lines=<start>-<end>,
+  // or a legacy numeric step=<n> - see stepFromParam) - waits for sign-in to
+  // resolve, and only fires while at the start screen so it never hijacks a
+  // wizard already in progress. `pane` says which HighlightablePane instance
+  // should claim pendingSelection once it's mounted - see
   // HighlightablePane.jsx's initialSelectionPane prop.
   useEffect(() => {
     if (!authUser || mode !== null) return;
@@ -203,13 +222,13 @@ export default function App() {
     const open = params.get('open');
     if (!open) return;
     const version = params.get('version') || undefined;
-    const stepParam = parseInt(params.get('step'), 10);
+    const stepParam = stepFromParam(params.get('step'));
     const pane = params.get('pane');
     const linesMatch = (params.get('lines') || '').match(/^(\d+)-(\d+)$/);
 
     api.component(open, version).then((r) => {
       startEdit({ component: r.component, dirName: r.dirName, versionDir: r.versionDir, fileName: r.fileName });
-      if (!Number.isNaN(stepParam)) setStep(Math.min(STEPS.length - 1, Math.max(0, stepParam)));
+      if (stepParam >= 0) setStep(stepParam);
       if (linesMatch) {
         setPendingSelection({ start: parseInt(linesMatch[1], 10), end: parseInt(linesMatch[2], 10) });
         setPendingSelectionPane(pane);
@@ -235,7 +254,7 @@ export default function App() {
   const isDirty = mode === 'edit' && savedYamlText !== null && previewYamlText !== savedYamlText;
 
   // Formerly computed inside YamlPane.jsx itself before it was generalized
-  // into HighlightablePane.jsx (now shared with the five hand-edited .md
+  // into HighlightablePane.jsx (now shared with the two hand-edited .md
   // files' own preview panes) - each caller now works out its own
   // "is there really a saved file to permalink to" condition.
   const yamlCanPermalink = mode === 'edit' && Boolean(originalLocation) && !isDirty;
@@ -249,13 +268,12 @@ export default function App() {
     : null;
 
   // Shared by every HighlightablePane on the page (the YAML pane and any of
-  // the five .md-file preview panes) so they all feed the same issue draft.
+  // the two .md-file preview panes) so they all feed the same issue draft.
   const addToIssueDraft = (entry) => setIssueDraft((d) => [...d, { ...entry, id: crypto.randomUUID() }]);
 
   // What the right-hand pane shows: on a Component Spec Document step
-  // (Links/Descriptions/Document History), whatever those steps have
-  // reported via onPreviewReady (Descriptions reports up to three at once);
-  // everywhere else, the single persistent Live YAML pane.
+  // (Links/Document History), whatever that step has reported via
+  // onPreviewReady; everywhere else, the single persistent Live YAML pane.
   const sidePanes = MD_PREVIEW_STEPS.has(step)
     ? Object.entries(stepPanes).map(([paneKey, info]) => ({ paneKey, ...info }))
     : [{
@@ -350,7 +368,7 @@ export default function App() {
       )}
 
       {view === 'wizard' && mode !== null && (
-        <div className={`shell ${step === 6 ? 'shell-no-yaml' : ''}`}>
+        <div className={`shell ${step === stepIndex('Compare Changes') ? 'shell-no-yaml' : ''}`}>
           <div className="rail">
             <button className="rail-item rail-start-over" onClick={backToStart}>&larr; Start over</button>
             {STEP_GROUPS.map((group, groupIdx) => (
@@ -376,7 +394,7 @@ export default function App() {
               </div>
             )}
 
-            {apiCatalogError && [3, 4, 5].includes(step) && (
+            {apiCatalogError && ['Exposed APIs', 'Dependent APIs', 'Events'].map(stepIndex).includes(step) && (
               <div className="status-banner error" style={{ marginBottom: 16 }}>
                 Couldn't load the API catalog ({apiCatalogError}). The resource/event pickers can't resolve any
                 API to its swagger spec until this succeeds — every API will show "No catalog entry found."{' '}
@@ -384,7 +402,7 @@ export default function App() {
               </div>
             )}
 
-            {step === 0 && (
+            {step === stepIndex('Metadata') && (
               <MetadataStep
                 state={state}
                 setState={setState}
@@ -392,7 +410,7 @@ export default function App() {
                 locked={mode === 'edit'}
               />
             )}
-            {step === 1 && (
+            {step === stepIndex('Links') && (
               <LinksStep
                 dirName={originalLocation?.dirName}
                 versionDir={originalLocation?.versionDir}
@@ -401,16 +419,7 @@ export default function App() {
                 onPreviewReady={handlePreviewReady}
               />
             )}
-            {step === 2 && (
-              <DescriptionsStep
-                dirName={originalLocation?.dirName}
-                versionDir={originalLocation?.versionDir}
-                eTOMs={state.eTOMs}
-                functionalFrameworkFunctions={state.functionalFrameworkFunctions}
-                onPreviewReady={handlePreviewReady}
-              />
-            )}
-            {step === 3 && (
+            {step === stepIndex('Exposed APIs') && (
               <ApiListStep
                 title="Exposed APIs"
                 requiredMeaning="Mandatory for Conformance"
@@ -419,7 +428,7 @@ export default function App() {
                 apiCatalog={apiCatalog}
               />
             )}
-            {step === 4 && (
+            {step === stepIndex('Dependent APIs') && (
               <ApiListStep
                 title="Dependent APIs"
                 requiredMeaning="Mandatory Dependency"
@@ -428,13 +437,13 @@ export default function App() {
                 apiCatalog={apiCatalog}
               />
             )}
-            {step === 5 && (
+            {step === stepIndex('Events') && (
               <EventsStep state={state} setState={setState} apiCatalog={apiCatalog} />
             )}
-            {step === 6 && (
+            {step === stepIndex('Compare Changes') && (
               <DiffStep state={state} original={original} />
             )}
-            {step === 7 && (
+            {step === stepIndex('Review & Save') && (
               <ReviewStep
                 state={state}
                 original={original}
@@ -444,7 +453,7 @@ export default function App() {
                 onPushed={refreshRepoInfo}
               />
             )}
-            {step === 8 && (
+            {step === stepIndex('Document History') && (
               <DocumentHistoryStep
                 dirName={originalLocation?.dirName}
                 versionDir={originalLocation?.versionDir}
@@ -458,7 +467,7 @@ export default function App() {
             </div>
           </div>
 
-          {step !== 6 && (
+          {step !== stepIndex('Compare Changes') && (
             <div className="side-pane-stack">
               {sidePanes.map((pane) => (
                 <React.Fragment key={pane.paneKey}>
@@ -478,7 +487,7 @@ export default function App() {
                     canPermalink={pane.canPermalink}
                     permalinkDisabledReason={pane.permalinkDisabledReason}
                     repoInfo={repoInfo}
-                    step={step}
+                    stepName={STEPS[step]}
                     paneKey={pane.paneKey}
                     initialSelection={pendingSelection}
                     initialSelectionPane={pendingSelectionPane}

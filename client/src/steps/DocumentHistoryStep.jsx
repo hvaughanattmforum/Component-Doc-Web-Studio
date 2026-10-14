@@ -85,7 +85,7 @@ export default function DocumentHistoryStep({ dirName, versionDir, onPreviewRead
   const [activeCard, setActiveCard] = useState(null);
   // The exact markdown text of the most recently loaded-or-saved snapshot -
   // see the same pattern in App.jsx (savedYamlText/isDirty) and
-  // LinksStep.jsx/DescriptionsStep.jsx (savedText/isDirty).
+  // LinksStep.jsx (savedText/isDirty).
   const [savedText, setSavedText] = useState(null);
 
   useEffect(() => {
