@@ -38,9 +38,12 @@ the `tmforum-rand` organization.
 
 The first time you load or create a component, the app sets up your own
 private workspace behind the scenes - this can take a few seconds. When
-you click **Push**, your changes are committed under your GitHub username
-and pushed to your own branch, never to `main`. The app does not open a pull
-request - open one yourself on GitHub from that branch when you're ready.
+you click **Push**, that component's changes are committed under your GitHub
+username and pushed to the component's own branch, named
+`component/TMFCnnn-<version>-<short-description>` - never to `main`. Each
+component you edit gets its own branch. To carry on with a branch later,
+pick it in the branch switcher. The app does not open a pull request - open
+one yourself on GitHub from that branch when you're ready.
 
 If pushing fails with a permissions error, that usually means your GitHub
 account doesn't have write access to the specification repository yet.

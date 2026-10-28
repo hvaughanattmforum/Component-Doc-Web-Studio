@@ -37,6 +37,9 @@ export default function ReviewStep({ state, original, originalLocation, mode, on
   // refreshed as the version is worked out) rather than a name the user
   // typed or the server already had.
   const [branchIsSuggestion, setBranchIsSuggestion] = useState(false);
+  // Once this component's branch is on origin its name is kept, as in the
+  // studio skill.
+  const [branchPushed, setBranchPushed] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [renameError, setRenameError] = useState(null);
   // Push stays disabled until this specific name has been explicitly
@@ -65,19 +68,23 @@ export default function ReviewStep({ state, original, originalLocation, mode, on
   const versionDir = released ? impact.newVersionDir : versionDirFor(state);
   const targetVersion = released ? impact.newVersion : state.version.trim();
 
+  // Each component has its own branch. Until one is confirmed for this
+  // component, the box holds a suggestion.
   useEffect(() => {
-    api.branchName().then((r) => {
-      // The server's own default (web-studio/<user>/<session>) is replaced by
-      // a suggestion in the component/TMFCnnn-<version>-<slug> form.
-      if (r.branch.startsWith('web-studio/')) {
+    if (!dirName) return;
+    api.branchName(dirName).then((r) => {
+      if (r.branch) {
+        setBranchName(r.branch);
+        setBranchIsSuggestion(false);
+        setBranchPushed(r.pushed);
+      } else {
         setBranchName(suggestedBranchName(state, targetVersion, mode));
         setBranchIsSuggestion(true);
-      } else {
-        setBranchName(r.branch);
+        setBranchPushed(false);
       }
     }).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [dirName]);
 
   useEffect(() => {
     if (branchIsSuggestion) setBranchName(suggestedBranchName(state, targetVersion, mode));
@@ -103,7 +110,7 @@ export default function ReviewStep({ state, original, originalLocation, mode, on
     setRenaming(true);
     setRenameError(null);
     try {
-      const result = await api.setBranchName(branchName.trim());
+      const result = await api.setBranchName(dirName, branchName.trim());
       if (result.ok) { setBranchName(result.branch); setConfirmed(true); setBranchIsSuggestion(false); }
       else setRenameError(result.error);
     } catch (err) {
@@ -167,7 +174,7 @@ export default function ReviewStep({ state, original, originalLocation, mode, on
   // Push only looks "ready" (vivid save-solid green) once a save of the
   // current content has actually happened - and stays disabled outright
   // until both that save and the branch-name confirmation have happened.
-  const canPush = hasSavedCurrentContent && confirmed;
+  const canPush = hasSavedCurrentContent && (confirmed || branchPushed);
 
   // Separate from Save above: Save only ever writes locally (to the active
   // worktree/workspace); this is the explicit, deliberate action that
@@ -179,8 +186,9 @@ export default function ReviewStep({ state, original, originalLocation, mode, on
     setPushing(true);
     setPushResult(null);
     try {
-      const result = await api.pushToOrigin(force);
+      const result = await api.pushToOrigin(dirName, force);
       setPushResult(result);
+      if (result.ok && result.committed) setBranchPushed(true);
       // Back to the initial gated state after an actual push - Save to
       // Worktree re-enables, Confirm re-greys, Push re-disables - so the
       // next push requires the whole save-then-confirm sequence again
@@ -292,16 +300,16 @@ export default function ReviewStep({ state, original, originalLocation, mode, on
           every step, not just this one. */}
 
       <div className="field" style={{ marginTop: 16 }}>
-        <label>Branch name to be created on origin Repo (suggested form: component/TMFCnnn-&lt;version&gt;-&lt;short-description&gt;)</label>
+        <label>Branch for {dirName} on origin Repo (component/TMFCnnn-&lt;version&gt;-&lt;short-description&gt;, one branch per component)</label>
         <div style={{ display: 'flex', gap: 8 }}>
           <input
             type="text"
             value={branchName}
             onChange={(e) => { setBranchName(e.target.value); setConfirmed(false); setBranchIsSuggestion(false); }}
             style={{ flex: 1 }}
-            disabled={renaming}
+            disabled={renaming || branchPushed}
           />
-          <button
+          {!branchPushed && <button
             type="button"
             className={confirmed ? 'save' : 'save-solid'}
             onClick={confirmBranchName}
@@ -312,8 +320,9 @@ export default function ReviewStep({ state, original, originalLocation, mode, on
               : confirmed
                 ? 'Change Name of branch in Origin repo'
                 : 'Confirm Branch Name to be created in Origin Repo'}
-          </button>
+          </button>}
         </div>
+        {branchPushed && <div className="hint" style={{ marginTop: 4 }}>Already pushed, so the name stays. Further pushes add to this branch.</div>}
         {renameError && <div className="hint" style={{ color: 'var(--danger)', marginTop: 4 }}>{renameError}</div>}
       </div>
 

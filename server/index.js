@@ -16,6 +16,9 @@ import {
   STATUS_VALUES, namingError, dumpComponentYaml, nextComponentId, versionImpact, applyFolderAction,
   companionTarget, isUnbumpedRelease,
 } from './specRules.js';
+import {
+  COMPONENT_BRANCH, componentBranchError, componentDirOnRef, commitComponent, componentMatches, restoreComponent,
+} from './componentBranches.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -544,6 +547,10 @@ app.get('/api/health', (req, res) => {
     specificationsDirExists: root ? fs.existsSync(specificationsDir(root)) : null,
     schemaExists: root ? fs.existsSync(schemaPath(root)) : null,
     git: root ? getGitInfo(root) : { remoteUrl: null, remote: null, branch: null },
+    // { dirName: branch } for each component pushed to its own working
+    // branch this session - GitHub links for its files point there.
+    componentBranches: Object.fromEntries(Object.entries(req.session.componentBranches || {})
+      .filter(([, branch]) => req.session.pushedTips?.[branch])),
     frameworksDir: REFERENCE_DATA_DIR,
     frameworksDirSource: FRAMEWORKS_DIR_SOURCE,
     frameworksDirExists: fs.existsSync(REFERENCE_DATA_DIR),
@@ -609,6 +616,27 @@ app.post('/api/git/checkout', (req, res) => {
     return res.status(400).json({ ok: false, error: `'${branch}' is not a valid git branch name` });
   }
   try {
+    // A component's working branch is resumed by bringing just that
+    // component's folder into the workspace - HEAD stays put, so edits to
+    // other components (each headed for its own branch) are left alone.
+    if (COMPONENT_BRANCH.test(branch)) {
+      try { gitAuthed(req, root, ['fetch', '--quiet', 'origin', branch]); } catch { /* offline, or not on origin yet */ }
+      const ref = [`refs/remotes/origin/${branch}`, `refs/heads/${branch}`].find((r) => runGit(root, ['rev-parse', '--verify', '--quiet', r]) !== null);
+      if (!ref) return res.status(404).json({ ok: false, error: `There's no branch '${branch}' on origin or in this workspace.` });
+      const dirName = componentDirOnRef(root, ref, branch);
+      if (!dirName) return res.status(422).json({ ok: false, error: `Couldn't find a single component folder for that ID on '${branch}'.` });
+      const branches = req.session.componentBranches || {};
+      const current = branches[dirName];
+      const safe = (current && runGit(root, ['rev-parse', '--verify', '--quiet', `refs/heads/${current}`]) !== null && componentMatches(root, dirName, `refs/heads/${current}`))
+        || !runGit(root, ['status', '--porcelain', '--', `specifications/${dirName}`]);
+      if (!safe) {
+        return res.status(409).json({ ok: false, error: `You have unpushed changes to ${dirName} - push or discard them before switching it to another branch.` });
+      }
+      restoreComponent(root, dirName, ref);
+      req.session.componentBranches = { ...branches, [dirName]: branch };
+      if (ref.startsWith('refs/remotes/')) req.session.pushedTips = { ...req.session.pushedTips, [branch]: runGit(root, ['rev-parse', ref]) };
+      return res.json({ ok: true, branch, dirName });
+    }
     if (runGit(root, ['status', '--porcelain'])) {
       return res.status(409).json({ ok: false, error: 'You have unsaved changes in this workspace - save or discard them before switching branches.' });
     }
@@ -1612,124 +1640,113 @@ async function githubApiRequest(token, method, apiPath, body) {
   return json;
 }
 
-// Every signed-in user's workspace clone (see ensureWorkspace) commits to its
-// own branch - created lazily on first save, reused for the rest of that
-// session - rather than to the base branch directly. The user can rename it
-// before pushing (see /api/git/branch-name below) instead of being stuck
-// with the auto-generated default.
-function ensureSessionBranch(req) {
-  if (!req.session.branchName) {
-    const slug = (req.session.user.login || 'user').toLowerCase().replace(/[^a-z0-9_-]/g, '-');
-    req.session.branchName = `web-studio/${slug}/${req.sessionID.slice(0, 8)}`;
+// Runs a git command that talks to origin. A per-session workspace clone
+// (req.workspaceDir - see ensureWorkspace) exists because a *hosted* server
+// has no access to the user's own git credentials, so it uses their
+// signed-in OAuth token instead. Everywhere else (single-checkout/worktree
+// mode) the server is the user's own machine and its own git credentials
+// work, which also sidesteps GitHub's org-level "third-party app access"
+// restriction. The token is passed via an environment variable, read by a
+// throwaway credential-helper snippet - never in a URL or argv, which
+// execFileSync would include verbatim in a thrown Error. `-c
+// credential.helper=` first clears any pre-configured helper so only ours
+// runs.
+function gitAuthed(req, root, args) {
+  if (!req.workspaceDir) return execFileSync('git', args, { cwd: root, encoding: 'utf8' });
+  const token = req.session.user.accessToken;
+  try {
+    return execFileSync(
+      'git',
+      [
+        '-c', 'credential.helper=',
+        '-c', 'credential.helper=!f() { echo username=x-access-token; echo "password=$ODA_STUDIO_PUSH_TOKEN"; }; f',
+        ...args,
+      ],
+      { cwd: root, encoding: 'utf8', env: { ...process.env, ODA_STUDIO_PUSH_TOKEN: token } },
+    );
+  } catch (err) {
+    // Defense in depth: the token should never appear in the error given
+    // the approach above, but strip it anyway.
+    throw new Error(redactToken(err.message, token));
   }
-  return req.session.branchName;
 }
 
+// Each component gets its own working branch, component/TMFCnnn-<version>-
+// <description> (see componentBranches.js), kept per session in
+// req.session.componentBranches as { dirName: branch }. The client suggests
+// a name; the user confirms it on Review & Save before the first push.
 app.get('/api/git/branch-name', (req, res) => {
-  res.json({ ok: true, branch: ensureSessionBranch(req) });
+  const branch = req.session.componentBranches?.[req.query.dirName] || null;
+  res.json({ ok: true, branch, pushed: Boolean(branch && req.session.pushedTips?.[branch]) });
 });
 
-// The branches a push must never target: the spec repo's base branch and the
-// usual default-branch names. Changes reach them only through a pull request.
-// A refs/heads/ prefix is stripped first, since `git push origin
-// HEAD:refs/heads/main` would otherwise slip past a plain name comparison.
-function isProtectedPushTarget(branch) {
-  const name = String(branch).replace(/^refs\/heads\//, '').replace(/^heads\//, '');
-  return [SPEC_REPO_BRANCH, 'main', 'master'].includes(name) || name.startsWith('refs/');
-}
-
 app.post('/api/git/branch-name', (req, res) => {
-  const { branch } = req.body;
+  const { dirName, branch } = req.body;
+  const nameError = namingError({ dirName });
+  if (nameError) return res.status(400).json({ ok: false, error: nameError });
   if (!isValidGitBranchName(branch)) {
     return res.status(400).json({ ok: false, error: `'${branch}' is not a valid git branch name` });
   }
-  if (isProtectedPushTarget(branch)) {
-    return res.status(400).json({ ok: false, error: `'${branch}' can't be pushed to directly - use a working branch such as component/TMFCnnn-<version>-<description> and open a pull request.` });
+  const branchError = componentBranchError(branch, dirName);
+  if (branchError) return res.status(400).json({ ok: false, error: branchError });
+
+  const branches = req.session.componentBranches || {};
+  const current = branches[dirName];
+  if (current === branch) return res.json({ ok: true, branch });
+  // Same rule as the studio skill: a branch's name can change only while
+  // it's unpushed.
+  if (current && req.session.pushedTips?.[current]) {
+    return res.status(409).json({ ok: false, error: `${dirName} is already pushed to '${current}' - keep that name.` });
   }
-  req.session.branchName = branch;
+  const other = Object.keys(branches).find((d) => d !== dirName && branches[d] === branch);
+  if (other) return res.status(409).json({ ok: false, error: `'${branch}' is already the branch for ${other}.` });
+  const root = resolveRepoRoot(req);
+  let onOrigin = null;
+  try { onOrigin = gitAuthed(req, root, ['ls-remote', '--heads', 'origin', `refs/heads/${branch}`]).trim(); } catch { /* offline - skip the check */ }
+  if (onOrigin) {
+    return res.status(409).json({ ok: false, error: `'${branch}' already exists on origin. To carry on with it, pick it in the branch switcher; otherwise choose another name.` });
+  }
+  req.session.componentBranches = { ...branches, [dirName]: branch };
   res.json({ ok: true, branch });
 });
 
-// Commits whatever's currently changed in this request's resolved repo root
-// (the signed-in user's own workspace clone, an active worktree, or the
-// shared legacy checkout - see resolveRepoRoot) and pushes it to this
-// session's own feature branch (created lazily on first push, reused after)
-// - never to the base branch directly. Does NOT open a PR. Returns
-// { committed: false } with no other side effects if nothing actually
-// changed (e.g. a push with no new edits since the last one).
-function commitAndPush(req, { message }) {
+// Commits the working tree's copy of one component's folder onto that
+// component's own branch and pushes the branch - never the base branch, and
+// never any other component's changes (see commitComponent). Does NOT open a
+// PR. Returns { committed: false } with no other side effects if the folder
+// already matches the branch (e.g. a push with no new edits since the last
+// one).
+function commitAndPush(req, { dirName }) {
   const root = resolveRepoRoot(req);
   const user = req.session.user;
-  const branch = ensureSessionBranch(req);
+  const branch = req.session.componentBranches?.[dirName];
+  if (!branch) throw new Error(`Confirm a branch name for ${dirName} first.`);
   // Checked again here, not only when the name is confirmed, so no path to a
-  // push can reach the base branch.
-  if (isProtectedPushTarget(branch)) throw new Error(`Refusing to push to '${branch}' - use a working branch and open a pull request.`);
-
-  execFileSync('git', ['add', '-A'], { cwd: root, encoding: 'utf8' });
-  if (!runGit(root, ['status', '--porcelain'])) {
-    return { committed: false };
-  }
-
-  const currentBranch = runGit(root, ['rev-parse', '--abbrev-ref', 'HEAD']);
-  if (currentBranch !== branch) {
-    const branchExists = runGit(root, ['rev-parse', '--verify', branch]) !== null;
-    execFileSync('git', branchExists ? ['checkout', branch] : ['checkout', '-b', branch], { cwd: root, encoding: 'utf8' });
-  }
-
-  execFileSync(
-    'git',
-    ['-c', `user.name=${user.name || user.login}`, '-c', `user.email=${user.login}@users.noreply.github.com`, 'commit', '-m', message],
-    { cwd: root, encoding: 'utf8' },
-  );
+  // push can reach a branch outside component/TMFCnnn-....
+  const branchError = componentBranchError(branch, dirName);
+  if (branchError) throw new Error(branchError);
 
   const remoteUrl = runGit(root, ['remote', 'get-url', 'origin']);
   const identity = repoOwnerAndName(remoteUrl);
   if (!identity) throw new Error(`Could not parse a GitHub owner/repo from remote URL: ${remoteUrl}`);
 
-  // Two different push identities depending on mode:
-  //
-  // - Per-session workspace clones (req.workspaceDir set - see
-  //   ensureWorkspace/SPEC_REPO_URL) exist because a *hosted* server has no
-  //   access to any individual user's own git credentials, so it has to
-  //   impersonate them via their signed-in OAuth token instead.
-  //
-  // - Everywhere else (single-checkout/worktree mode - what this app is
-  //   actually run as day to day) the server IS the user's own machine,
-  //   which already has its own working git credentials (SSH key, cached
-  //   PAT, Windows Credential Manager, ...) - using those instead of the
-  //   OAuth token sidesteps GitHub's org-level "third-party app access"
-  //   restriction entirely, since it's then a plain `git push` exactly like
-  //   the user would run by hand, not an OAuth App acting on their behalf.
-  if (req.workspaceDir) {
-    // The token is passed via an environment variable, read by a throwaway
-    // credential-helper shell snippet - never embedded in a URL or any other
-    // argv value. This matters because execFileSync includes the full
-    // command line (every arg, but NOT the env option) in its thrown Error
-    // on a failed command - an argv-embedded token (e.g.
-    // https://x-access-token:TOKEN@...) would otherwise leak into any error
-    // surfaced to the client, as happened here during testing.
-    // `-c credential.helper=` first clears any pre-configured helper (e.g.
-    // Windows Credential Manager) so only ours runs.
-    try {
-      execFileSync(
-        'git',
-        [
-          '-c', 'credential.helper=',
-          '-c', 'credential.helper=!f() { echo username=x-access-token; echo "password=$ODA_STUDIO_PUSH_TOKEN"; }; f',
-          'push', 'origin', `HEAD:${branch}`,
-        ],
-        { cwd: root, encoding: 'utf8', env: { ...process.env, ODA_STUDIO_PUSH_TOKEN: user.accessToken } },
-      );
-    } catch (err) {
-      // Defense in depth: the token should never appear in argv/output given
-      // the credential-helper approach above, but strip it anyway in case it
-      // ends up in an error some other way (e.g. a future code path).
-      throw new Error(redactToken(err.message, user.accessToken));
-    }
-  } else {
-    execFileSync('git', ['push', 'origin', `HEAD:${branch}`], { cwd: root, encoding: 'utf8' });
-  }
+  // Picks up anything pushed to the branch since, so commitComponent can
+  // build on it - or refuse when it isn't this session's last push.
+  try { gitAuthed(req, root, ['fetch', '--quiet', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`]); } catch { /* not on origin yet, or offline */ }
 
+  const { committed, sha } = commitComponent(root, {
+    dirName,
+    branch,
+    baseRef: baseRef(),
+    message: `${dirName}: update component specification via ODA Web Studio (${user.login})`,
+    author: { name: user.name || user.login, email: `${user.login}@users.noreply.github.com` },
+    expectedTip: req.session.pushedTips?.[branch] || null,
+  });
+  if (!committed) return { committed: false, branch };
+
+  gitAuthed(req, root, ['push', 'origin', `refs/heads/${branch}:refs/heads/${branch}`]);
+  runGit(root, ['update-ref', `refs/remotes/origin/${branch}`, sha]);
+  req.session.pushedTips = { ...req.session.pushedTips, [branch]: sha };
   return { committed: true, branch, identity };
 }
 
@@ -1767,14 +1784,8 @@ app.post('/api/github/issue', async (req, res) => {
 });
 
 // Writes the component YAML to disk only - it never commits, pushes or opens
-// a PR (regardless of hosted vs. worktree mode), so the branch-name field on
-// the Review & Save panel still names whatever "Push to origin Repo"
-// actually creates. It used to also commit/push/open a PR here in hosted
-// mode, under whatever default branch name ensureSessionBranch() had
-// generated by that point - since the Confirm-branch-name control only
-// unlocks after a successful save, that meant the real push+PR always landed
-// under the auto-generated name, and a typed custom name silently never took
-// effect.
+// a PR (regardless of hosted vs. worktree mode); "Push to origin Repo" is
+// the separate step that commits it to the component's own branch.
 //
 // For a component already released on the base branch, the version and the
 // target folder are decided here, not by the client: versionImpact works out
@@ -1872,27 +1883,28 @@ async function runCiValidator(root) {
   return { ran: false, ok: false, output: 'The CI check couldn\'t run: no Python interpreter found (tried "python3" and "python").' };
 }
 
-// Commits and pushes whatever's currently on disk (in this request's
-// resolved repo root) to this session's own feature branch on origin. Never
+// Commits one component's folder as it is on disk (in this request's
+// resolved repo root) and pushes it to that component's own branch on
+// origin - the name the user confirmed on the Review & Save panel. Never
 // opens a PR - the user opens one themselves on GitHub when they're ready.
 // "Save"/"Save to Worktree" only ever writes locally; this is the explicit,
-// separate action that actually publishes those local commits - under
-// whatever branch name the user has confirmed on the Review & Save panel by
-// this point - to the real repo.
+// separate action that publishes it to the real repo.
 //
 // The repo's CI check runs first and a failure blocks the push, unless the
 // request says { force: true } (the "Push anyway" button).
 app.post('/api/git/push', async (req, res) => {
   try {
-    if (!req.body?.force) {
+    const { dirName, force } = req.body || {};
+    const nameError = namingError({ dirName });
+    if (nameError) return res.status(400).json({ ok: false, error: nameError });
+    if (!force) {
       const check = await runCiValidator(resolveRepoRoot(req));
       if (!check.ok) return res.status(422).json({ ok: false, code: 'ci-check-failed', checkRan: check.ran, error: check.output });
     }
-    const message = `Update component specifications via ODA Web Studio (${req.session.user.login})`;
-    const { committed, branch } = commitAndPush(req, { message });
+    const { committed, branch } = commitAndPush(req, { dirName });
     res.json({ ok: true, committed, branch });
   } catch (err) {
-    res.status(500).json({ ok: false, error: err.message });
+    res.status(err.code === 'branch-moved' ? 409 : 500).json({ ok: false, code: err.code, error: err.message });
   }
 });
 

@@ -107,8 +107,11 @@ export default function HighlightablePane({
     : null;
 
   const identity = repoInfo?.git?.remoteUrl ? parseGithubRemote(repoInfo.git.remoteUrl) : null;
-  const githubLink = canPermalink && start && identity && repoInfo.git.branch && relativePath
-    ? `https://github.com/${identity.owner}/${identity.repo}/blob/${repoInfo.git.branch}/${relativePath}#L${start}-L${end}`
+  // A component pushed to its own branch is linked there, not to whatever
+  // the workspace has checked out.
+  const linkBranch = repoInfo?.componentBranches?.[dirName] || repoInfo?.git?.branch;
+  const githubLink = canPermalink && start && identity && linkBranch && relativePath
+    ? `https://github.com/${identity.owner}/${identity.repo}/blob/${linkBranch}/${relativePath}#L${start}-L${end}`
     : null;
 
   const copy = async (text, which) => {
