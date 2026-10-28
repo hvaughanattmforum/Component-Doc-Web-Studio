@@ -55,16 +55,11 @@ export default function BranchSwitcher({ currentBranch, repoInfo, hasOpenWizard,
     setSwitching(true);
     setError(null);
 
+    // A component/TMFCnnn-... branch only brings that component's folder
+    // into the workspace and makes it the component's push target (see
+    // /api/git/checkout in server/index.js).
     const request = hosted
-      ? api.checkoutBranch(selected).then(async (r) => {
-        if (!r.ok) return r;
-        // Without this, the next Save/Push would compare the branch just
-        // checked out against the session's own (stale or freshly
-        // auto-generated) branch name, see a mismatch, and silently check
-        // out/commit to THAT instead - see ensureSessionBranch in
-        // server/index.js.
-        return api.setBranchName(selected);
-      })
+      ? api.checkoutBranch(selected)
       : (worktrees.find((w) => w.branch === selected)
         ? api.selectWorktree(worktrees.find((w) => w.branch === selected).path)
         : api.createWorktree(selected));

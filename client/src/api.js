@@ -34,17 +34,18 @@ export const api = {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path }),
   }).then((res) => res.json().then((body) => ({ status: res.status, ...body }))),
-  // force: push even though the repo's CI check failed ("Push anyway").
-  pushToOrigin: (force = false) => fetch(`${BASE}/git/push`, {
+  // Pushes one component's folder to its own branch. force: push even
+  // though the repo's CI check failed ("Push anyway").
+  pushToOrigin: (dirName, force = false) => fetch(`${BASE}/git/push`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ force }),
+    body: JSON.stringify({ dirName, force }),
   }).then((res) => res.json().then((body) => ({ status: res.status, ...body }))),
-  branchName: () => fetch(`${BASE}/git/branch-name`).then(json),
-  setBranchName: (branch) => fetch(`${BASE}/git/branch-name`, {
+  branchName: (dirName) => fetch(`${BASE}/git/branch-name?dirName=${encodeURIComponent(dirName)}`).then(json),
+  setBranchName: (dirName, branch) => fetch(`${BASE}/git/branch-name`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ branch }),
+    body: JSON.stringify({ dirName, branch }),
   }).then((res) => res.json().then((body) => ({ status: res.status, ...body }))),
   getConfig: () => fetch(`${BASE}/config`).then(json),
   // partial: { repoRoot? , frameworksDir? } - either or both may be set independently.
