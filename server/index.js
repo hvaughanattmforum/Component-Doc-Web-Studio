@@ -9,6 +9,7 @@ import { execFileSync, execFile } from 'child_process';
 import { promisify } from 'util';
 import yaml from 'js-yaml';
 import Ajv from 'ajv';
+import Ajv2020 from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
 import { fetchS3ApiIndex } from './apiIndexSource.js';
 import {
@@ -426,9 +427,14 @@ function loadSchema(root) {
   return JSON.parse(raw);
 }
 
+// ci/component.schema.json declares draft 2020-12 (since spec repo commit
+// f31fedc); the default Ajv class only knows draft-07 and can't compile it, so
+// the class is picked from the schema's own $schema - the same choice as
+// buildValidator in the studio skill's studio.js.
 function buildValidator(root) {
   const schema = loadSchema(root);
-  const ajv = new Ajv({ allErrors: true, strict: false });
+  const AjvClass = String(schema.$schema || '').includes('2020-12') ? Ajv2020 : Ajv;
+  const ajv = new AjvClass({ allErrors: true, strict: false });
   addFormats(ajv);
   return ajv.compile(schema);
 }
