@@ -40,19 +40,28 @@ function ContactList({ label, items, onChange }) {
   );
 }
 
+// componentMetadata.status values - same list as STATUS_VALUES in
+// server/specRules.js, which rejects anything else on save.
+const STATUS_VALUES = ['backlog', 'roadmap', 'preview', 'production', 'not released'];
+
 export default function MetadataStep({ state, setState, functionalBlocks, locked }) {
   const set = (field) => (e) => setState({ ...state, [field]: e.target.value });
+  // The name is half of the folder and file names, which only allow letters
+  // and digits (TMFCnnn-Name) - see NAME_PATTERNS in server/specRules.js.
+  const nameInvalid = !locked && state.name !== '' && !/^[A-Za-z0-9]+$/.test(state.name);
+  const versionInvalid = !locked && !/^\d+\.\d+\.\d+$/.test(state.version);
 
   return (
     <div className="panel">
       <div className="row">
         <div className="field">
-          <label>Component ID <span className="hint">TMFCxxx{locked ? ' — locked while editing' : ''}</span></label>
-          <input type="text" value={state.id} onChange={set('id')} placeholder="TMFC042" disabled={locked} />
+          <label>Component ID <span className="hint">{locked ? 'locked while editing' : 'next free ID across all branches - not editable'}</span></label>
+          <input type="text" value={state.id} placeholder="Looking up the next free ID…" disabled />
         </div>
         <div className="field">
-          <label>Name{locked ? <span className="hint">locked while editing</span> : null}</label>
+          <label>Name <span className="hint">{locked ? 'locked while editing' : 'letters and digits only, e.g. ProductInventory'}</span></label>
           <input type="text" value={state.name} onChange={set('name')} placeholder="MyNewComponent" disabled={locked} />
+          {nameInvalid && <span className="hint" style={{ color: 'var(--danger)' }}>Use letters and digits only - no spaces or punctuation.</span>}
         </div>
       </div>
 
@@ -63,15 +72,15 @@ export default function MetadataStep({ state, setState, functionalBlocks, locked
 
       <div className="row">
         <div className="field">
-          <label>Version</label>
-          <input type="text" value={state.version} onChange={set('version')} placeholder="1.0.0" />
+          <label>Version <span className="hint">{locked ? 'set on save by the version rule' : 'X.Y.Z, usually 1.0.0'}</span></label>
+          <input type="text" value={state.version} onChange={set('version')} placeholder="1.0.0" disabled={locked} />
+          {versionInvalid && <span className="hint" style={{ color: 'var(--danger)' }}>Use X.Y.Z, e.g. 1.0.0.</span>}
         </div>
         <div className="field">
           <label>Status <span className="hint">not editable</span></label>
           <select value={state.status} disabled>
-            <option value="roadmap">roadmap</option>
-            <option value="preview">preview</option>
-            <option value="production">production</option>
+            {STATUS_VALUES.map((s) => <option key={s} value={s}>{s}</option>)}
+            {!STATUS_VALUES.includes(state.status) && <option value={state.status}>{state.status} (not allowed)</option>}
           </select>
         </div>
         <div className="field">

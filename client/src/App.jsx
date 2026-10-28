@@ -198,10 +198,35 @@ export default function App() {
   // permalinks silently pointing at the old version folder after a
   // version-bump save (originalLocation), and re-enables permalinks/GitHub
   // links that isDirty had disabled for unsaved edits (savedYamlText).
-  const onComponentSaved = ({ dirName, versionDir, fileName, component, yamlText }) => {
+  //
+  // The server sets the version and folder of a released component itself
+  // (the version rule), so the saved component's version is copied back into
+  // the form, and the saved snapshot is rebuilt from that. Returns the
+  // snapshot text so ReviewStep can compare against the same thing.
+  const onComponentSaved = ({ dirName, versionDir, fileName, component }) => {
+    const savedState = { ...state, version: component.spec.componentMetadata.version };
+    const text = yaml.dump(buildComponent(savedState, component), YAML_OPTS);
     setOriginalLocation({ dirName, versionDir, fileName });
     setOriginal(component);
-    setSavedYamlText(yamlText);
+    setState(savedState);
+    setSavedYamlText(text);
+    if (mode === 'new') setMode('edit');
+    return text;
+  };
+
+  // Called by the Links and Document History steps when saving one of their
+  // files moved the component to a new version folder (editing a released
+  // folder is a patch change - see companionTarget in server/specRules.js).
+  const onCompanionVersionChanged = ({ versionDir, version }) => {
+    setOriginalLocation((loc) => ({ ...loc, versionDir }));
+    const nextOriginal = original && {
+      ...original,
+      spec: { ...original.spec, componentMetadata: { ...original.spec.componentMetadata, version } },
+    };
+    const nextState = { ...state, version };
+    setOriginal(nextOriginal);
+    setState(nextState);
+    setSavedYamlText(yaml.dump(buildComponent(nextState, nextOriginal), YAML_OPTS));
   };
 
   const backToStart = () => {
@@ -417,6 +442,7 @@ export default function App() {
                 eTOMs={state.eTOMs}
                 SIDs={state.SIDs}
                 onPreviewReady={handlePreviewReady}
+                onVersionChanged={onCompanionVersionChanged}
               />
             )}
             {step === stepIndex('Exposed APIs') && (
@@ -458,6 +484,7 @@ export default function App() {
                 dirName={originalLocation?.dirName}
                 versionDir={originalLocation?.versionDir}
                 onPreviewReady={handlePreviewReady}
+                onVersionChanged={onCompanionVersionChanged}
               />
             )}
 
