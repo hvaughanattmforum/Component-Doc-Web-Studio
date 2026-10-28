@@ -9,6 +9,7 @@ import { execFileSync, execFile } from 'child_process';
 import { promisify } from 'util';
 import yaml from 'js-yaml';
 import Ajv from 'ajv';
+import Ajv2020 from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
 import { fetchS3ApiIndex } from './apiIndexSource.js';
 import {
@@ -426,9 +427,14 @@ function loadSchema(root) {
   return JSON.parse(raw);
 }
 
+// ci/component.schema.json declares draft 2020-12 (since spec repo commit
+// f31fedc); the default Ajv class only knows draft-07 and can't compile it, so
+// the class is picked from the schema's own $schema - the same choice as
+// buildValidator in the studio skill's studio.js.
 function buildValidator(root) {
   const schema = loadSchema(root);
-  const ajv = new Ajv({ allErrors: true, strict: false });
+  const AjvClass = String(schema.$schema || '').includes('2020-12') ? Ajv2020 : Ajv;
+  const ajv = new AjvClass({ allErrors: true, strict: false });
   addFormats(ajv);
   return ajv.compile(schema);
 }
@@ -1623,10 +1629,22 @@ app.get('/api/git/branch-name', (req, res) => {
   res.json({ ok: true, branch: ensureSessionBranch(req) });
 });
 
+// The branches a push must never target: the spec repo's base branch and the
+// usual default-branch names. Changes reach them only through a pull request.
+// A refs/heads/ prefix is stripped first, since `git push origin
+// HEAD:refs/heads/main` would otherwise slip past a plain name comparison.
+function isProtectedPushTarget(branch) {
+  const name = String(branch).replace(/^refs\/heads\//, '').replace(/^heads\//, '');
+  return [SPEC_REPO_BRANCH, 'main', 'master'].includes(name) || name.startsWith('refs/');
+}
+
 app.post('/api/git/branch-name', (req, res) => {
   const { branch } = req.body;
   if (!isValidGitBranchName(branch)) {
     return res.status(400).json({ ok: false, error: `'${branch}' is not a valid git branch name` });
+  }
+  if (isProtectedPushTarget(branch)) {
+    return res.status(400).json({ ok: false, error: `'${branch}' can't be pushed to directly - use a working branch such as component/TMFCnnn-<version>-<description> and open a pull request.` });
   }
   req.session.branchName = branch;
   res.json({ ok: true, branch });
@@ -1643,6 +1661,9 @@ function commitAndPush(req, { message }) {
   const root = resolveRepoRoot(req);
   const user = req.session.user;
   const branch = ensureSessionBranch(req);
+  // Checked again here, not only when the name is confirmed, so no path to a
+  // push can reach the base branch.
+  if (isProtectedPushTarget(branch)) throw new Error(`Refusing to push to '${branch}' - use a working branch and open a pull request.`);
 
   execFileSync('git', ['add', '-A'], { cwd: root, encoding: 'utf8' });
   if (!runGit(root, ['status', '--porcelain'])) {
