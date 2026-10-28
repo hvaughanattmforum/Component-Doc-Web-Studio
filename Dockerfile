@@ -28,8 +28,11 @@ FROM node:22-slim
 # ca-certificates is needed for git to verify github.com's TLS cert over
 # HTTPS - without it, every clone fails with "server certificate
 # verification failed: CAfile: none CRLfile: none".
+# python3-jsonschema and python3-yaml are what the spec repo's
+# ci/validateComponents.py imports - it runs before every push (see
+# runCiValidator in server/index.js).
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends python3 git ca-certificates \
+  && apt-get install -y --no-install-recommends python3 python3-jsonschema python3-yaml git ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 

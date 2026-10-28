@@ -104,7 +104,7 @@ function FieldInput({ field, value, onChange }) {
 // free text.
 function LinksPanel({
   dirName, versionDir, title, helpText, fields, blankRow, pairKeyFn, getApi, saveApi,
-  columns, suffix, paneKey, onPreviewReady, showDiagram,
+  columns, suffix, paneKey, onPreviewReady, showDiagram, onVersionChanged,
 }) {
   const [data, setData] = useState(null); // { exists, heading, notesBefore, notesAfter, links }
   const [saving, setSaving] = useState(false);
@@ -136,9 +136,13 @@ function LinksPanel({
       // right away instead of only writing one the first time "Save links"
       // is clicked, so every component that's been opened here has a file
       // in its Diagrams/Source/ folder ready to fill in (or leave empty).
+      // `seed` marks it as a placeholder: the server skips it for a
+      // released version folder, so just opening this step never edits a
+      // release or bumps its version.
       const seeded = { heading: d.heading, notesBefore: '', notesAfter: '', links: [] };
-      saveApi(dirName, versionDir, seeded)
-        .then(() => {
+      saveApi(dirName, versionDir, { ...seeded, seed: true })
+        .then((res) => {
+          if (res.skipped) { setData(d); return; }
           setData({ ...d, exists: true, justCreated: true });
           setSavedText(renderLinksMarkdown(seeded, columns, fieldKeys));
         })
@@ -226,9 +230,14 @@ function LinksPanel({
         links: data.links,
       });
       if (res.ok) {
+        // The server may have filled blank YAML cells with **NO MATCH**
+        // notes, so the saved rows are taken from its response.
+        const saved = { ...data, exists: true, links: res.links || data.links };
         setResult({ ok: true, path: res.path });
-        setData({ ...data, exists: true });
-        setSavedText(renderLinksMarkdown(data, columns, fieldKeys));
+        setData(saved);
+        setSavedText(renderLinksMarkdown(saved, columns, fieldKeys));
+        // Editing a released folder moved the component to a patch version.
+        if (res.bumped) onVersionChanged?.({ versionDir: res.versionDir, version: res.bumped.to });
       } else {
         setResult({ ok: false, error: res.error || 'Save failed' });
       }
@@ -311,7 +320,7 @@ function unorderedPairKey(a, b) {
 // "eTOM L2 - SID ABEs links" diagram. Only meaningful once a component
 // directory exists on disk, so this is hidden while creating a brand-new
 // (not yet saved) component.
-export default function LinksStep({ dirName, versionDir, eTOMs, SIDs, onPreviewReady }) {
+export default function LinksStep({ dirName, versionDir, eTOMs, SIDs, onPreviewReady, onVersionChanged }) {
   if (!dirName || !versionDir) {
     return (
       <div className="panel panel-white">
@@ -345,6 +354,7 @@ export default function LinksStep({ dirName, versionDir, eTOMs, SIDs, onPreviewR
       suffix="eTOM_SID_Links"
       paneKey="links"
       onPreviewReady={onPreviewReady}
+      onVersionChanged={onVersionChanged}
       showDiagram
     />
   );

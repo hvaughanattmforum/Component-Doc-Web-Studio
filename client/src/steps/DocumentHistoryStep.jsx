@@ -75,7 +75,7 @@ function HistoryTable({ columns, rows, editableCount, onChange }) {
 // ever written from this UI. Only meaningful once a component directory
 // exists on disk, so this is hidden while creating a brand-new (not yet
 // saved) component.
-export default function DocumentHistoryStep({ dirName, versionDir, onPreviewReady }) {
+export default function DocumentHistoryStep({ dirName, versionDir, onPreviewReady, onVersionChanged }) {
   const [data, setData] = useState(null);
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState(null); // { ok, error? }
@@ -108,8 +108,11 @@ export default function DocumentHistoryStep({ dirName, versionDir, onPreviewRead
         releaseHistoryRows: d.releaseHistory.rows,
         acknowledgementsRows: d.acknowledgements.rows,
       };
-      api.saveComponentSupplement(dirName, versionDir, payload)
+      // `seed` marks it as a placeholder - see the same pattern in
+      // LinksStep.jsx: never written into a released version folder.
+      api.saveComponentSupplement(dirName, versionDir, { ...payload, seed: true })
         .then((res) => {
+          if (res.skipped) { setData(d); return; }
           setData({ ...d, exists: true, path: res.path, justCreated: true });
           setSavedText(renderSupplementMarkdown(d, d.meta));
         })
@@ -179,9 +182,14 @@ export default function DocumentHistoryStep({ dirName, versionDir, onPreviewRead
         acknowledgementsRows: data.acknowledgements.rows,
       });
       if (res.ok) {
+        // The front matter comes from the YAML, whose version may have just
+        // been bumped - take the meta the server actually wrote.
+        const saved = { ...data, exists: true, path: res.path, meta: res.meta || data.meta };
         setResult({ ok: true });
-        setData({ ...data, exists: true, path: res.path });
-        setSavedText(renderSupplementMarkdown(data, data.meta));
+        setData(saved);
+        setSavedText(renderSupplementMarkdown(saved, saved.meta));
+        // Editing a released folder moved the component to a patch version.
+        if (res.bumped) onVersionChanged?.({ versionDir: res.versionDir, version: res.bumped.to });
       } else {
         setResult({ ok: false, error: res.error || 'Save failed' });
       }

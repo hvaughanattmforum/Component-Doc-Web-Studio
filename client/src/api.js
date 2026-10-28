@@ -34,8 +34,12 @@ export const api = {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path }),
   }).then((res) => res.json().then((body) => ({ status: res.status, ...body }))),
-  pushToOrigin: () => fetch(`${BASE}/git/push`, { method: 'POST' })
-    .then((res) => res.json().then((body) => ({ status: res.status, ...body }))),
+  // force: push even though the repo's CI check failed ("Push anyway").
+  pushToOrigin: (force = false) => fetch(`${BASE}/git/push`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ force }),
+  }).then((res) => res.json().then((body) => ({ status: res.status, ...body }))),
   branchName: () => fetch(`${BASE}/git/branch-name`).then(json),
   setBranchName: (branch) => fetch(`${BASE}/git/branch-name`, {
     method: 'POST',
@@ -75,6 +79,12 @@ export const api = {
   regenerateFrameworks: () => fetch(`${BASE}/frameworks/regenerate`, { method: 'POST' })
     .then((res) => res.json().then((body) => ({ status: res.status, ...body }))),
   apiResources: (swaggerUrl) => fetch(`${BASE}/api-resources?swagger=${encodeURIComponent(swaggerUrl)}`).then(json),
+  // The version and folder a save would get - see /api/version-impact.
+  versionImpact: (payload) => fetch(`${BASE}/version-impact`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }).then((res) => res.json().then((body) => ({ status: res.status, ...body }))),
   validate: (component) => fetch(`${BASE}/validate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

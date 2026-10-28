@@ -11,6 +11,10 @@ import yaml from 'js-yaml';
 import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
 import { fetchS3ApiIndex } from './apiIndexSource.js';
+import {
+  STATUS_VALUES, namingError, dumpComponentYaml, nextComponentId, versionImpact, applyFolderAction,
+  companionTarget, isUnbumpedRelease,
+} from './specRules.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -208,6 +212,9 @@ function resolveRepoRoot(req) {
 }
 
 const specificationsDir = (root) => path.join(root, 'specifications');
+// Released component versions are read from this ref - see versionImpact in
+// specRules.js.
+const baseRef = () => `origin/${SPEC_REPO_BRANCH}`;
 const schemaPath = (root) => path.join(root, 'ci', 'component.schema.json');
 
 // Each signed-in user gets their own throwaway clone of the spec repo
@@ -372,17 +379,6 @@ function normalizeDates(value) {
     return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, normalizeDates(v)]));
   }
   return value;
-}
-
-// Inverse of the above, applied to yaml.dump's output text: a JS string like
-// "2026-05-11" is inherently ambiguous with YAML's !!timestamp type, so
-// yaml.dump quotes it to preserve its string-ness on a future load (verified:
-// dumping a real Date object instead just produces a full ISO timestamp with
-// a time component, an even bigger mismatch) - unquote it back to match how
-// the files are hand-written, since this app always treats it as a plain
-// YYYY-MM-DD date, never a string with other content.
-function unquoteDate(yamlText) {
-  return yamlText.replace(/^(\s*publicationDate:\s*)'(\d{4}-\d{2}-\d{2})'\s*$/gm, '$1$2');
 }
 
 // Human-friendly "owner/repo" form of a git remote URL, for display only.
@@ -1087,13 +1083,38 @@ const LINK_TYPES = {
     columns: ['eTOM activity', 'SID ABE', 'Direction', 'YAML eTOM', 'YAML SID'],
     fields: ['etomActivity', 'sidABE', 'direction', 'yamlETOM', 'yamlSID'],
     defaultHeading: (id) => `${id} eTOM–SID Links`,
+    // A YAML eTOM/YAML SID cell left blank on a row that has other content
+    // is written as an explicit **NO MATCH** note rather than an empty cell,
+    // the same convention as the studio skill's companion-files.md.
+    fillNoMatch: (row, meta) => {
+      const hasContent = ['etomActivity', 'sidABE', 'yamlETOM', 'yamlSID'].some((f) => (row[f] || '').trim());
+      if (!hasContent) return row;
+      const note = (field) => (meta[field].length
+        ? `**NO MATCH** — no matching entry in componentMetadata.${field}`
+        : `**NO MATCH** — componentMetadata.${field} is empty ([]) in the current YAML`);
+      return {
+        ...row,
+        yamlETOM: (row.yamlETOM || '').trim() ? row.yamlETOM : note('eTOMs'),
+        yamlSID: (row.yamlSID || '').trim() ? row.yamlSID : note('SIDs'),
+      };
+    },
   },
 };
+
+// The eTOMs/SIDs lists of a component version's YAML, for the NO MATCH notes.
+function readComponentMetaLists(root, dirName, versionDir) {
+  try {
+    const meta = yaml.load(fs.readFileSync(yamlPathFor(root, dirName, versionDir), 'utf8'))?.spec?.componentMetadata || {};
+    return { eTOMs: meta.eTOMs || [], SIDs: meta.SIDs || [] };
+  } catch {
+    return { eTOMs: [], SIDs: [] };
+  }
+}
 
 function registerLinksRoutes(type) {
   app.get(`/api/component/:dirName/${type.route}`, (req, res) => {
     const { dirName } = req.params;
-    if (!/^[\w.\-]+$/.test(dirName)) {
+    if (namingError({ dirName })) {
       return res.status(400).json({ ok: false, error: 'Invalid dirName' });
     }
     const root = resolveRepoRoot(req);
@@ -1115,10 +1136,10 @@ function registerLinksRoutes(type) {
 
   app.post(`/api/component/:dirName/${type.route}`, (req, res) => {
     const { dirName } = req.params;
-    if (!/^[\w.\-]+$/.test(dirName)) {
+    if (namingError({ dirName })) {
       return res.status(400).json({ ok: false, error: 'Invalid dirName' });
     }
-    const { heading, notesBefore, notesAfter, links, version } = req.body;
+    const { heading, notesBefore, notesAfter, links, version, seed } = req.body;
     if (!Array.isArray(links)) {
       return res.status(400).json({ ok: false, error: 'links must be an array' });
     }
@@ -1126,12 +1147,21 @@ function registerLinksRoutes(type) {
     const resolved = resolveVersionDir(root, dirName, version);
     if (resolved.error) return res.status(resolved.error.status).json({ ok: false, error: resolved.error.message });
     try {
+      // An auto-created empty file is a placeholder, not an edit - it never
+      // goes into a released folder or bumps the version.
+      if (seed && isUnbumpedRelease(root, dirName, resolved.versionDir, baseRef())) {
+        return res.json({ ok: true, skipped: true, versionDir: resolved.versionDir });
+      }
+      const target = seed ? { versionDir: resolved.versionDir, bumped: null } : companionTarget(root, dirName, resolved.versionDir, baseRef());
+      if (target.bumped) rewriteSupplementFrontMatter(root, dirName, target.versionDir);
       const id = dirName.split('-')[0];
-      const filePath = linksFilePath(root, dirName, type.suffix, resolved.versionDir);
+      const filePath = linksFilePath(root, dirName, type.suffix, target.versionDir);
       const defaultHeading = type.defaultHeading(id);
+      const meta = readComponentMetaLists(root, dirName, target.versionDir);
+      const filled = links.map((row) => type.fillNoMatch(row, meta));
       fs.mkdirSync(path.dirname(filePath), { recursive: true });
-      fs.writeFileSync(filePath, renderLinksMarkdown({ heading: heading || defaultHeading, notesBefore, notesAfter, links }, type.columns, type.fields), 'utf8');
-      res.json({ ok: true, path: filePath });
+      fs.writeFileSync(filePath, renderLinksMarkdown({ heading: heading || defaultHeading, notesBefore, notesAfter, links: filled }, type.columns, type.fields), 'utf8');
+      res.json({ ok: true, path: filePath, versionDir: target.versionDir, bumped: target.bumped, links: filled });
     } catch (err) {
       res.status(500).json({ ok: false, error: err.message });
     }
@@ -1367,6 +1397,16 @@ function parseSupplementMarkdown(text) {
   return parseSupplementBody(stripSupplementFrontMatter(text));
 }
 
+// After a version change, the Supplement's front matter has to name the new
+// version - re-renders it from the folder's YAML, if there is a Supplement.
+function rewriteSupplementFrontMatter(root, dirName, versionDir) {
+  const filePath = findSupplementFile(root, dirName, versionDir);
+  const meta = readComponentMeta(root, dirName, versionDir);
+  if (!filePath || !meta?.name || !meta?.version) return;
+  const parsed = parseSupplementMarkdown(fs.readFileSync(filePath, 'utf8'));
+  fs.writeFileSync(filePath, renderSupplementMarkdown(parsed, meta), 'utf8');
+}
+
 function readComponentMeta(root, dirName, versionDir) {
   const yamlPath = yamlPathFor(root, dirName, versionDir);
   if (!fs.existsSync(yamlPath)) return null;
@@ -1407,7 +1447,7 @@ function findSupplementFile(root, dirName, versionDir) {
 
 app.get('/api/component/:dirName/supplement', (req, res) => {
   const { dirName } = req.params;
-  if (!/^[\w.\-]+$/.test(dirName)) {
+  if (namingError({ dirName })) {
     return res.status(400).json({ ok: false, error: 'Invalid dirName' });
   }
   const root = resolveRepoRoot(req);
@@ -1436,10 +1476,10 @@ app.get('/api/component/:dirName/supplement', (req, res) => {
 // client sends.
 app.post('/api/component/:dirName/supplement', (req, res) => {
   const { dirName } = req.params;
-  if (!/^[\w.\-]+$/.test(dirName)) {
+  if (namingError({ dirName })) {
     return res.status(400).json({ ok: false, error: 'Invalid dirName' });
   }
-  const { jiraBody, furtherBody, versionHistoryRows, releaseHistoryRows, acknowledgementsRows, version } = req.body;
+  const { jiraBody, furtherBody, versionHistoryRows, releaseHistoryRows, acknowledgementsRows, version, seed } = req.body;
   if (typeof jiraBody !== 'string' || typeof furtherBody !== 'string') {
     return res.status(400).json({ ok: false, error: 'jiraBody and furtherBody must be strings' });
   }
@@ -1450,9 +1490,14 @@ app.post('/api/component/:dirName/supplement', (req, res) => {
   const resolved = resolveVersionDir(root, dirName, version);
   if (resolved.error) return res.status(resolved.error.status).json({ ok: false, error: resolved.error.message });
   try {
-    const filePath = findSupplementFile(root, dirName, resolved.versionDir)
-      || path.join(specificationsDir(root), dirName, resolved.versionDir, 'Diagrams', 'Source', defaultSupplementFileName(root, dirName, resolved.versionDir));
-    const meta = readComponentMeta(root, dirName, resolved.versionDir);
+    // See the same placeholder rule in the links route above.
+    if (seed && isUnbumpedRelease(root, dirName, resolved.versionDir, baseRef())) {
+      return res.json({ ok: true, skipped: true, versionDir: resolved.versionDir });
+    }
+    const target = seed ? { versionDir: resolved.versionDir, bumped: null } : companionTarget(root, dirName, resolved.versionDir, baseRef());
+    const filePath = findSupplementFile(root, dirName, target.versionDir)
+      || path.join(specificationsDir(root), dirName, target.versionDir, 'Diagrams', 'Source', defaultSupplementFileName(root, dirName, target.versionDir));
+    const meta = readComponentMeta(root, dirName, target.versionDir);
     if (!meta || !meta.name || !meta.version) {
       return res.status(400).json({ ok: false, error: "Could not read this component's name/version from its YAML - save the Metadata tab first." });
     }
@@ -1469,7 +1514,7 @@ app.post('/api/component/:dirName/supplement', (req, res) => {
     };
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     fs.writeFileSync(filePath, renderSupplementMarkdown(parsed, meta), 'utf8');
-    res.json({ ok: true, path: filePath });
+    res.json({ ok: true, path: filePath, versionDir: target.versionDir, bumped: target.bumped, meta });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
@@ -1479,7 +1524,7 @@ app.post('/api/component/:dirName/supplement', (req, res) => {
 // "edit existing" picker's version dropdown.
 app.get('/api/component/:dirName/versions', (req, res) => {
   const { dirName } = req.params;
-  if (!/^[\w.\-]+$/.test(dirName)) {
+  if (namingError({ dirName })) {
     return res.status(400).json({ ok: false, error: 'Invalid dirName' });
   }
   res.json({ versions: listVersionDirs(resolveRepoRoot(req), dirName) });
@@ -1489,7 +1534,7 @@ app.get('/api/component/:dirName/versions', (req, res) => {
 // version), to prefill the wizard for editing.
 app.get('/api/component/:dirName', (req, res) => {
   const { dirName } = req.params;
-  if (!/^[\w.\-]+$/.test(dirName)) {
+  if (namingError({ dirName })) {
     return res.status(400).json({ ok: false, error: 'Invalid dirName' });
   }
   const root = resolveRepoRoot(req);
@@ -1508,15 +1553,25 @@ app.get('/api/component/:dirName', (req, res) => {
   }
 });
 
-// Next unused TMFCxxx id, based on existing component directories.
+// Next unused TMFCxxx id across the working tree and every branch - see
+// nextComponentId in specRules.js.
 app.get('/api/next-id', (req, res) => {
-  let max = 0;
-  for (const dirName of listComponentDirs(resolveRepoRoot(req))) {
-    const m = dirName.match(/^TMFC(\d+)-/);
-    if (m) max = Math.max(max, parseInt(m[1], 10));
+  const root = resolveRepoRoot(req);
+  res.json({ id: nextComponentId(root, listComponentDirs(root)) });
+});
+
+// The version a save of this component would get, and the folder it would go
+// to - read-only, for the Metadata and Review & Save steps.
+app.post('/api/version-impact', (req, res) => {
+  const { component, dirName, keepVersion } = req.body;
+  const nameError = namingError({ dirName });
+  if (nameError || !component) return res.status(400).json({ ok: false, error: nameError || 'component is required' });
+  try {
+    const impact = versionImpact(resolveRepoRoot(req), dirName, component, { baseRef: baseRef(), keepVersion: Boolean(keepVersion) });
+    res.json({ ok: true, ...impact });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
   }
-  const next = max + 1;
-  res.json({ id: `TMFC${String(next).padStart(3, '0')}` });
 });
 
 app.post('/api/validate', (req, res) => {
@@ -1699,15 +1754,47 @@ app.post('/api/github/issue', async (req, res) => {
 // unlocks after a successful save, that meant the real push+PR always landed
 // under the auto-generated name, and a typed custom name silently never took
 // effect.
+//
+// For a component already released on the base branch, the version and the
+// target folder are decided here, not by the client: versionImpact works out
+// the bump, applyFolderAction moves the folders, and the YAML is written into
+// the resulting folder with componentMetadata.version set to match. The
+// response carries the version, folder and component actually written.
 app.post('/api/save', (req, res) => {
   try {
     const root = resolveRepoRoot(req);
-    const { component, dirName, versionDir, fileName, force } = req.body;
+    const { component, dirName, fileName, force, keepVersion } = req.body;
+    let { versionDir } = req.body;
     if (!dirName || !versionDir || !fileName || !component) {
       return res.status(400).json({ ok: false, error: 'dirName, versionDir, fileName and component are required' });
     }
-    if (!/^[\w.\-]+$/.test(dirName) || !/^[\w.\-]+$/.test(versionDir) || !/^[\w.\-]+\.yaml$/.test(fileName)) {
-      return res.status(400).json({ ok: false, error: 'Invalid dirName, versionDir or fileName' });
+    const nameError = namingError({ dirName, versionDir, fileName });
+    if (nameError) return res.status(400).json({ ok: false, error: nameError });
+
+    const status = component?.spec?.componentMetadata?.status;
+    if (!STATUS_VALUES.includes(status)) {
+      return res.status(422).json({ ok: false, error: `Status "${status}" isn't allowed - use one of: ${STATUS_VALUES.join(', ')}` });
+    }
+
+    const impact = versionImpact(root, dirName, component, { baseRef: baseRef(), keepVersion: Boolean(keepVersion) });
+    if (impact.isNew) {
+      if (!/^\d+\.\d+\.\d+$/.test(component.spec.componentMetadata.version)) {
+        return res.status(422).json({ ok: false, error: 'A new component\'s version must be X.Y.Z, e.g. 1.0.0' });
+      }
+    } else {
+      if (impact.action === 'level-dropped') {
+        return res.status(409).json({
+          ok: false,
+          code: 'level-dropped',
+          error: `This branch already moved ${dirName} to ${impact.workingVersionDir}, but the changes now only need ${impact.newVersionDir}. Keep ${impact.workingVersionDir}, or start again from the released ${impact.baseVersionDir}.`,
+          impact,
+        });
+      }
+      if (impact.action === 'none') {
+        return res.status(409).json({ ok: false, code: 'no-change', error: `Nothing changed compared with the released ${impact.baseVersionDir} - there is nothing to save.` });
+      }
+      component.spec.componentMetadata.version = impact.newVersion;
+      versionDir = impact.newVersionDir;
     }
 
     const validate = buildValidator(root);
@@ -1719,19 +1806,50 @@ app.post('/api/save', (req, res) => {
     const targetDir = path.join(specificationsDir(root), dirName, versionDir);
     const targetFile = path.join(targetDir, fileName);
 
-    if (fs.existsSync(targetFile) && !force) {
+    // A released component's folder is managed by the version rule above, so
+    // the overwrite guard only applies to brand-new components.
+    if (impact.isNew && fs.existsSync(targetFile) && !force) {
       return res.status(409).json({ ok: false, error: `${fileName} already exists in ${dirName}` });
     }
 
+    if (!impact.isNew) applyFolderAction(root, dirName, impact, baseRef());
     fs.mkdirSync(targetDir, { recursive: true });
-    const yamlText = unquoteDate(yaml.dump(component, { sortKeys: false, lineWidth: -1, noArrayIndent: true }));
-    fs.writeFileSync(targetFile, yamlText, 'utf8');
+    fs.writeFileSync(targetFile, dumpComponentYaml(component), 'utf8');
+    if (!impact.isNew && impact.action !== 'use') rewriteSupplementFrontMatter(root, dirName, versionDir);
 
-    res.json({ ok: true, path: targetFile });
+    res.json({
+      ok: true, path: targetFile, dirName, versionDir, fileName, component, impact: impact.isNew ? null : impact,
+    });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
 });
+
+// Runs the spec repo's own CI check (ci/validateComponents.py: the schema
+// plus the eTOM/FF/SID line formats and file naming) against this workspace,
+// since CI doesn't run on a pushed feature branch. Returns
+// { ran, ok, output } - ran is false when the check couldn't be run at all.
+async function runCiValidator(root) {
+  const script = path.join(root, 'ci', 'validateComponents.py');
+  if (!fs.existsSync(script)) return { ran: false, ok: true, output: 'This repo has no ci/validateComponents.py.' };
+  for (const command of ['python3', 'python']) {
+    try {
+      await execFileAsync(command, [script], { cwd: root, timeout: 180000, maxBuffer: 20 * 1024 * 1024 });
+      return { ran: true, ok: true, output: '' };
+    } catch (err) {
+      if (err.code === 'ENOENT') continue;
+      const output = [err.stdout, err.stderr].filter(Boolean).join('\n');
+      if (/Python was not found/.test(output)) continue; // the Windows Store "python3" stub
+      if (/ModuleNotFoundError|ImportError/.test(output)) {
+        return { ran: false, ok: false, output: `The CI check couldn't run: ${output.trim().split('\n').pop()}` };
+      }
+      // Only the error lines - the passing components' lines are noise here.
+      const errors = output.split('\n').filter((l) => /::error::|::group::/.test(l)).map((l) => l.replace(/^::(error|group)::/, ''));
+      return { ran: true, ok: false, output: (errors.length ? errors : [output.trim()]).join('\n') };
+    }
+  }
+  return { ran: false, ok: false, output: 'The CI check couldn\'t run: no Python interpreter found (tried "python3" and "python").' };
+}
 
 // Commits and pushes whatever's currently on disk (in this request's
 // resolved repo root) to this session's own feature branch on origin. Never
@@ -1740,8 +1858,15 @@ app.post('/api/save', (req, res) => {
 // separate action that actually publishes those local commits - under
 // whatever branch name the user has confirmed on the Review & Save panel by
 // this point - to the real repo.
-app.post('/api/git/push', (req, res) => {
+//
+// The repo's CI check runs first and a failure blocks the push, unless the
+// request says { force: true } (the "Push anyway" button).
+app.post('/api/git/push', async (req, res) => {
   try {
+    if (!req.body?.force) {
+      const check = await runCiValidator(resolveRepoRoot(req));
+      if (!check.ok) return res.status(422).json({ ok: false, code: 'ci-check-failed', checkRan: check.ran, error: check.output });
+    }
     const message = `Update component specifications via ODA Web Studio (${req.session.user.login})`;
     const { committed, branch } = commitAndPush(req, { message });
     res.json({ ok: true, committed, branch });
