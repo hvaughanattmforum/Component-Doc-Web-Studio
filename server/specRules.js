@@ -71,9 +71,12 @@ function git(root, args) {
 // Next ID across the whole repo: the working tree plus every local and
 // remote-tracking branch, so IDs already claimed on unmerged branches aren't
 // handed out again. TMFC9* IDs are ignored. Same rule as studio.js next-id.
-export function nextComponentId(root, workingTreeDirNames) {
+// `fetchOrigin` refreshes the remote-tracking branches first; the server
+// passes one that authenticates as the signed-in user, since a hosted
+// workspace clone has no credentials of its own.
+export function nextComponentId(root, workingTreeDirNames, fetchOrigin = () => git(root, ['fetch', '--quiet', '--prune', 'origin'])) {
   const dirNames = new Set(workingTreeDirNames);
-  git(root, ['fetch', '--quiet', '--prune', 'origin']); // best effort: offline uses the refs already present
+  try { fetchOrigin(); } catch { /* best effort: offline uses the refs already present */ }
   const refs = (git(root, ['for-each-ref', '--format=%(refname)', 'refs/heads', 'refs/remotes']) || '').split('\n').filter(Boolean);
   for (const ref of refs) {
     for (const p of (git(root, ['ls-tree', '--name-only', ref, 'specifications/']) || '').split('\n').filter(Boolean)) {

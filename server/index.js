@@ -567,7 +567,9 @@ app.get('/api/health', (req, res) => {
 app.get('/api/git/branches', (req, res) => {
   const root = resolveRepoRoot(req);
   try {
-    execFileSync('git', ['fetch', '--prune'], { cwd: root, encoding: 'utf8' });
+    // gitAuthed, not plain git: a hosted workspace clone has no credentials
+    // of its own, so a plain fetch fails and the list never shows new branches.
+    gitAuthed(req, root, ['fetch', '--prune', 'origin']);
   } catch {
     // offline, or no fetch access - branches list just won't include anything new
   }
@@ -640,7 +642,9 @@ app.post('/api/git/checkout', (req, res) => {
     if (runGit(root, ['status', '--porcelain'])) {
       return res.status(409).json({ ok: false, error: 'You have unsaved changes in this workspace - save or discard them before switching branches.' });
     }
-    execFileSync('git', ['fetch', 'origin', branch], { cwd: root, encoding: 'utf8' });
+    // gitAuthed for the same reason as in /api/git/branches: plain git fails
+    // in a hosted workspace with "could not read Username for 'https://github.com'".
+    gitAuthed(req, root, ['fetch', 'origin', branch]);
     const localExists = runGit(root, ['rev-parse', '--verify', branch]) !== null;
     execFileSync('git', localExists ? ['checkout', branch] : ['checkout', '-B', branch, `origin/${branch}`], { cwd: root, encoding: 'utf8' });
     if (localExists) {
@@ -1591,7 +1595,7 @@ app.get('/api/component/:dirName', (req, res) => {
 // nextComponentId in specRules.js.
 app.get('/api/next-id', (req, res) => {
   const root = resolveRepoRoot(req);
-  res.json({ id: nextComponentId(root, listComponentDirs(root)) });
+  res.json({ id: nextComponentId(root, listComponentDirs(root), () => gitAuthed(req, root, ['fetch', '--quiet', '--prune', 'origin'])) });
 });
 
 // The version a save of this component would get, and the folder it would go
