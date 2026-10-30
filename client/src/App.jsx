@@ -348,12 +348,12 @@ export default function App() {
               {' '}on branch{' '}
               {authUser ? (
                 <BranchSwitcher
-                  currentBranch={repoInfo.git.branch}
+                  currentBranch={repoInfo.selectedBranch || repoInfo.git.branch}
                   repoInfo={repoInfo}
                   hasOpenWizard={mode !== null}
                   onGoToReviewStep={() => { setView('wizard'); setStep(STEPS.indexOf('Review & Save')); }}
                 />
-              ) : <code>{repoInfo.git.branch}</code>}
+              ) : <code>{repoInfo.selectedBranch || repoInfo.git.branch}</code>}
             </>
           )}
         </p>
