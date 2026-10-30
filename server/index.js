@@ -547,6 +547,11 @@ app.get('/api/health', (req, res) => {
     specificationsDirExists: root ? fs.existsSync(specificationsDir(root)) : null,
     schemaExists: root ? fs.existsSync(schemaPath(root)) : null,
     git: root ? getGitInfo(root) : { remoteUrl: null, remote: null, branch: null },
+    // The component branch last picked in the branch switcher, while it's
+    // still one of this session's component branches - shown in place of
+    // git.branch, since switching to one leaves HEAD where it was.
+    selectedBranch: Object.values(req.session.componentBranches || {}).includes(req.session.selectedBranch)
+      ? req.session.selectedBranch : null,
     // { dirName: branch } for each component pushed to its own working
     // branch this session - GitHub links for its files point there.
     componentBranches: Object.fromEntries(Object.entries(req.session.componentBranches || {})
@@ -636,8 +641,16 @@ app.post('/api/git/checkout', (req, res) => {
       }
       restoreComponent(root, dirName, ref);
       req.session.componentBranches = { ...branches, [dirName]: branch };
+      // HEAD doesn't move, so remember the pick for the "on branch" label.
+      req.session.selectedBranch = branch;
       if (ref.startsWith('refs/remotes/')) req.session.pushedTips = { ...req.session.pushedTips, [branch]: runGit(root, ['rev-parse', ref]) };
       return res.json({ ok: true, branch, dirName });
+    }
+    // Switching back to the branch HEAD is already on (e.g. main after a
+    // component branch) only needs the label to follow - no checkout.
+    if (branch === runGit(root, ['rev-parse', '--abbrev-ref', 'HEAD'])) {
+      req.session.selectedBranch = null;
+      return res.json({ ok: true, branch });
     }
     if (runGit(root, ['status', '--porcelain'])) {
       return res.status(409).json({ ok: false, error: 'You have unsaved changes in this workspace - save or discard them before switching branches.' });
@@ -654,6 +667,7 @@ app.post('/api/git/checkout', (req, res) => {
         // local branch has diverged from origin - leave it where it is rather than rewriting it
       }
     }
+    req.session.selectedBranch = null;
     res.json({ ok: true, branch: runGit(root, ['rev-parse', '--abbrev-ref', 'HEAD']) });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
