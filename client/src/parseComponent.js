@@ -83,7 +83,7 @@ export function stateFromComponent(component) {
     name: meta.name || '',
     description: meta.description || '',
     version: meta.version || '',
-    status: meta.status || 'roadmap',
+    status: meta.status || 'development',
     publicationDate: meta.publicationDate || '',
     functionalBlock: meta.functionalBlock || '',
     // raw kept (as with API/event entries above) so buildComponent can spread

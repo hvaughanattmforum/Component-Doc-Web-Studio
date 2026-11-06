@@ -41,7 +41,7 @@ export function dumpComponentYaml(component) {
 
 // componentMetadata.status lifecycle values - the schema only says "string",
 // so this list is enforced here. Same list as the studio skill's yaml-shape.md.
-export const STATUS_VALUES = ['backlog', 'roadmap', 'preview', 'production', 'not released'];
+export const STATUS_VALUES = ['backlog', 'roadmap', 'development', 'preview', 'production', 'not released'];
 
 // Same patterns as the studio skill's studio.js.
 export const NAME_PATTERNS = {

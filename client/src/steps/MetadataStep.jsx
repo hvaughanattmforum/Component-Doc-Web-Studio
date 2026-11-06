@@ -42,7 +42,7 @@ function ContactList({ label, items, onChange }) {
 
 // componentMetadata.status values - same list as STATUS_VALUES in
 // server/specRules.js, which rejects anything else on save.
-const STATUS_VALUES = ['backlog', 'roadmap', 'preview', 'production', 'not released'];
+const STATUS_VALUES = ['backlog', 'roadmap', 'development', 'preview', 'production', 'not released'];
 
 export default function MetadataStep({ state, setState, functionalBlocks, locked }) {
   const set = (field) => (e) => setState({ ...state, [field]: e.target.value });

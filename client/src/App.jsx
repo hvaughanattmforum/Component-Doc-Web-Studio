@@ -66,7 +66,7 @@ function blankState() {
     name: '',
     description: '',
     version: '1.0.0',
-    status: 'roadmap',
+    status: 'development',
     publicationDate: new Date().toISOString().slice(0, 10),
     functionalBlock: '',
     owners: [],
